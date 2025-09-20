@@ -105,11 +105,18 @@ def get_hours_display(base_time: datetime, tz_name: str, tz: ZoneInfo, is_local:
     local_time = datetime.now().astimezone()
     start_time = local_time.replace(hour=0, minute=0, second=0, microsecond=0)
 
+    current_day = start_time.day
     for hour in range(24):
         # Calculate the time for this hour slot starting from our start_time
         time_slot = start_time + timedelta(hours=hour)
         # Convert to target timezone
         time_at_hour = time_slot.astimezone(tz)
+
+        # Check if we've crossed into a new day and add separator
+        if time_at_hour.day != current_day and hour > 0:
+            # Add a separator for day boundary
+            hours.append('\033[90m|\033[0m')  # Gray vertical bar
+            current_day = time_at_hour.day
 
         # Format the hour
         hour_12 = time_at_hour.hour % 12
