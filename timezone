@@ -163,12 +163,12 @@ def display_timezones(timezones: List[Tuple[str, str]], anchor_tz_str: str = Non
     if debug:
         print(f"DEBUG: UTC time: {now}")
 
-    # Clear screen
-    os.system('clear' if os.name != 'nt' else 'cls')
+    # Clear screen only in interactive mode
+    # Don't clear in non-interactive mode to preserve terminal history
+    # os.system('clear' if os.name != 'nt' else 'cls')
 
     # Color legend (no title)
-    print()
-    print("  \033[90m■\033[0m Night (12am-5am)  ", end="")
+    print("\n  \033[90m■\033[0m Night (12am-5am)  ", end="")
     print("\033[93m■\033[0m Morning (6am-11am)  ", end="")
     print("\033[92m■\033[0m Afternoon (12pm-5pm)  ", end="")
     print("\033[94m■\033[0m Evening (6pm-8pm)  ", end="")
@@ -307,6 +307,8 @@ def resolve_city_to_timezone(city_input):
         'mumbai': 'Asia/Kolkata',
         'delhi': 'Asia/Kolkata',
         'del': 'Asia/Kolkata',
+        'india': 'Asia/Kolkata',
+        'ind': 'Asia/Kolkata',
         'dubai': 'Asia/Dubai',
         'dxb': 'Asia/Dubai',
         'sydney': 'Australia/Sydney',
