@@ -88,7 +88,7 @@ def get_local_city():
 
     return "LOC"  # Default local label
 
-def get_hours_display(base_time: datetime, tz_name: str, tz: ZoneInfo, is_local: bool = False) -> Tuple[str, List[str]]:
+def get_hours_display(base_time: datetime, tz_name: str, tz: ZoneInfo, is_local: bool = False, anchor_tz: ZoneInfo = None) -> Tuple[str, List[str]]:
     """Generate hours display for a timezone showing current time in that zone"""
     hours = []
     # Convert base_time to the target timezone to get current time there
@@ -101,9 +101,12 @@ def get_hours_display(base_time: datetime, tz_name: str, tz: ZoneInfo, is_local:
     # Get the current hour in this timezone
     current_hour = current_time.hour
 
-    # Start from midnight of current day in local timezone
-    local_time = datetime.now().astimezone()
-    start_time = local_time.replace(hour=0, minute=0, second=0, microsecond=0)
+    # Start from midnight of current day in anchor timezone (or local if no anchor)
+    if anchor_tz:
+        anchor_time = datetime.now().astimezone(anchor_tz)
+    else:
+        anchor_time = datetime.now().astimezone()
+    start_time = anchor_time.replace(hour=0, minute=0, second=0, microsecond=0)
 
     for hour in range(24):
         # Calculate the time for this hour slot starting from our start_time
@@ -152,7 +155,7 @@ def get_hours_display(base_time: datetime, tz_name: str, tz: ZoneInfo, is_local:
 
     return label, hours
 
-def display_timezones(timezones: List[Tuple[str, str]], debug=False):
+def display_timezones(timezones: List[Tuple[str, str]], anchor_tz_str: str = None, debug=False):
     """Display timezone comparison grid"""
     # Get current time
     now = datetime.now(timezone.utc)
@@ -172,6 +175,14 @@ def display_timezones(timezones: List[Tuple[str, str]], debug=False):
     print("\033[95m■\033[0m Late (9pm-11pm)\033[0m")
     print()
 
+    # Get anchor timezone if specified
+    anchor_tz = None
+    if anchor_tz_str:
+        try:
+            anchor_tz = ZoneInfo(anchor_tz_str)
+        except:
+            pass
+
     # Display each timezone
     for tz_label, tz_name in timezones:
         try:
@@ -179,17 +190,24 @@ def display_timezones(timezones: List[Tuple[str, str]], debug=False):
                 tz = get_local_timezone()
                 # Get actual city name for local timezone
                 city_label = get_local_city()
-                is_local = True
+                # Mark as local only if it's not the anchor
+                is_local = not anchor_tz_str or str(tz) != anchor_tz_str
                 if debug:
                     print(f"DEBUG: Local TZ = {tz}, City = {city_label}")
             else:
                 tz = ZoneInfo(tz_name)
                 city_label = tz_label
+                # Check if this is the anchor timezone
                 is_local = False
                 if debug:
                     print(f"DEBUG: {tz_name} = {tz}")
 
-            label, hours = get_hours_display(now, city_label, tz, is_local)
+            # Check if this is the anchor (gets the star)
+            is_anchor = anchor_tz_str and str(tz) == anchor_tz_str
+
+            label, hours = get_hours_display(now, city_label, tz,
+                                            is_local=(is_local and not anchor_tz_str) or is_anchor,
+                                            anchor_tz=anchor_tz)
 
             # Print timezone row with day separator
             print(f"{label} ", end="")
@@ -248,24 +266,149 @@ def get_input_nonblocking():
         termios.tcsetattr(sys.stdin, termios.TCSADRAIN, old_settings)
     return None
 
+def resolve_city_to_timezone(city_input):
+    """Resolve a city name (partial or full) to a timezone"""
+    # Common city mappings
+    city_mappings = {
+        'sf': 'America/Los_Angeles',
+        'san francisco': 'America/Los_Angeles',
+        'la': 'America/Los_Angeles',
+        'los angeles': 'America/Los_Angeles',
+        'nyc': 'America/New_York',
+        'new york': 'America/New_York',
+        'chicago': 'America/Chicago',
+        'chi': 'America/Chicago',
+        'denver': 'America/Denver',
+        'den': 'America/Denver',
+        'phoenix': 'America/Phoenix',
+        'phx': 'America/Phoenix',
+        'london': 'Europe/London',
+        'lon': 'Europe/London',
+        'paris': 'Europe/Paris',
+        'par': 'Europe/Paris',
+        'berlin': 'Europe/Berlin',
+        'ber': 'Europe/Berlin',
+        'amsterdam': 'Europe/Amsterdam',
+        'ams': 'Europe/Amsterdam',
+        'tokyo': 'Asia/Tokyo',
+        'tyo': 'Asia/Tokyo',
+        'seoul': 'Asia/Seoul',
+        'sel': 'Asia/Seoul',
+        'taiwan': 'Asia/Taipei',
+        'taipei': 'Asia/Taipei',
+        'tpe': 'Asia/Taipei',
+        'shanghai': 'Asia/Shanghai',
+        'sha': 'Asia/Shanghai',
+        'beijing': 'Asia/Shanghai',  # Same timezone
+        'hong kong': 'Asia/Hong_Kong',
+        'hkg': 'Asia/Hong_Kong',
+        'singapore': 'Asia/Singapore',
+        'sin': 'Asia/Singapore',
+        'mumbai': 'Asia/Kolkata',
+        'delhi': 'Asia/Kolkata',
+        'del': 'Asia/Kolkata',
+        'dubai': 'Asia/Dubai',
+        'dxb': 'Asia/Dubai',
+        'sydney': 'Australia/Sydney',
+        'syd': 'Australia/Sydney',
+        'melbourne': 'Australia/Melbourne',
+        'mel': 'Australia/Melbourne',
+        'auckland': 'Pacific/Auckland',
+        'akl': 'Pacific/Auckland',
+    }
+
+    # Try exact match first (case-insensitive)
+    city_lower = city_input.lower()
+    if city_lower in city_mappings:
+        return city_mappings[city_lower], city_input.upper()[:3]
+
+    # Try partial match
+    for key, value in city_mappings.items():
+        if city_lower in key or key.startswith(city_lower):
+            # Generate label from the matched city
+            return value, key.split()[0].upper()[:3]
+
+    # If it looks like a timezone path, use it directly
+    if '/' in city_input:
+        try:
+            ZoneInfo(city_input)  # Validate it
+            label = city_input.split('/')[-1][:3].upper()
+            return city_input, label
+        except:
+            pass
+
+    return None, None
+
 def main():
     import argparse
     parser = argparse.ArgumentParser(description='Timezone comparison tool')
+    parser.add_argument('cities', nargs='*', help='Cities to display (use @ suffix to anchor, e.g., london@)')
     parser.add_argument('--interactive', '-i', action='store_true',
                        help='Run in interactive mode')
     parser.add_argument('--debug', '-d', action='store_true',
                        help='Enable debug output')
     args = parser.parse_args()
 
-    # Default timezones to show
-    timezones = [
-        ("LOCAL", "LOCAL"),  # Will be replaced with actual city name
-        ("LON", "Europe/London"),
-    ]
+    # Process city arguments
+    anchor_city = None
+    cities_to_show = []
+
+    if args.cities:
+        for city in args.cities:
+            # Check if this is the anchor city (ends with @)
+            if city.endswith('@'):
+                city = city[:-1]
+                tz, label = resolve_city_to_timezone(city)
+                if tz:
+                    anchor_city = (label, tz)
+                    cities_to_show.append((label, tz))
+                else:
+                    print(f"Warning: Could not resolve city '{city}'")
+            else:
+                tz, label = resolve_city_to_timezone(city)
+                if tz:
+                    cities_to_show.append((label, tz))
+                else:
+                    print(f"Warning: Could not resolve city '{city}'")
+
+    # Set up timezones list
+    timezones = []
+
+    # Add local timezone first (unless it's the anchor or already in list)
+    local_tz_str = subprocess.run(['timedatectl', 'show', '--property=Timezone', '--value'],
+                                  capture_output=True, text=True).stdout.strip()
+    local_city = get_local_city()
+    local_entry = (local_city, "LOCAL")
+
+    # Set up which timezones we've seen
+    seen_tzs = set()
+
+    # If we have an anchor city that's the same as local, show it with the anchor label
+    if anchor_city and anchor_city[1] == local_tz_str:
+        timezones.append((anchor_city[0], "LOCAL"))  # Use anchor label, LOCAL timezone
+        seen_tzs.add(local_tz_str)
+    else:
+        # Otherwise, show local with its own label
+        timezones.append(local_entry)
+        seen_tzs.add(local_tz_str)
+
+    # Add specified cities (avoiding duplicates)
+    for label, tz in cities_to_show:
+        # Skip if already added (including anchor which is in cities_to_show)
+        if tz not in seen_tzs and tz != "LOCAL":
+            timezones.append((label, tz))
+            seen_tzs.add(tz)
+
+    # If no cities specified, default to showing London
+    if not args.cities and len(timezones) == 1:
+        if "Europe/London" not in seen_tzs:
+            timezones.append(("LON", "Europe/London"))
 
     # Default: non-interactive mode - just display and exit
     if not args.interactive:
-        display_timezones(timezones, debug=args.debug)
+        # Pass anchor timezone if specified
+        anchor_tz_str = anchor_city[1] if anchor_city else None
+        display_timezones(timezones, anchor_tz_str=anchor_tz_str, debug=args.debug)
         return
 
     # Interactive mode
