@@ -101,10 +101,9 @@ def get_hours_display(base_time: datetime, tz_name: str, tz: ZoneInfo, is_local:
     # Get the current hour in this timezone
     current_hour = current_time.hour
 
-    # Start from 6 hours before current local time to show a day centered on "now"
-    # This gives context of the working day
+    # Start from midnight of current day in local timezone
     local_time = datetime.now().astimezone()
-    start_time = local_time.replace(minute=0, second=0, microsecond=0) - timedelta(hours=6)
+    start_time = local_time.replace(hour=0, minute=0, second=0, microsecond=0)
 
     for hour in range(24):
         # Calculate the time for this hour slot starting from our start_time
