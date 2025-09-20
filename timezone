@@ -190,23 +190,20 @@ def display_timezones(timezones: List[Tuple[str, str]], anchor_tz_str: str = Non
                 tz = get_local_timezone()
                 # Get actual city name for local timezone
                 city_label = get_local_city()
-                # Mark as local only if it's not the anchor
-                is_local = not anchor_tz_str or str(tz) != anchor_tz_str
+                # This is the actual local timezone - gets the star
+                is_local = True
                 if debug:
                     print(f"DEBUG: Local TZ = {tz}, City = {city_label}")
             else:
                 tz = ZoneInfo(tz_name)
                 city_label = tz_label
-                # Check if this is the anchor timezone
+                # Non-local timezones never get the star
                 is_local = False
                 if debug:
                     print(f"DEBUG: {tz_name} = {tz}")
 
-            # Check if this is the anchor (gets the star)
-            is_anchor = anchor_tz_str and str(tz) == anchor_tz_str
-
             label, hours = get_hours_display(now, city_label, tz,
-                                            is_local=(is_local and not anchor_tz_str) or is_anchor,
+                                            is_local=is_local,  # Star only for actual local timezone
                                             anchor_tz=anchor_tz)
 
             # Print timezone row with day separator
@@ -385,16 +382,26 @@ def main():
     # Set up which timezones we've seen
     seen_tzs = set()
 
-    # If we have an anchor city that's the same as local, show it with the anchor label
-    if anchor_city and anchor_city[1] == local_tz_str:
-        timezones.append((anchor_city[0], "LOCAL"))  # Use anchor label, LOCAL timezone
-        seen_tzs.add(local_tz_str)
+    # If we have an anchor city, it goes first
+    if anchor_city:
+        if anchor_city[1] == local_tz_str:
+            # Anchor is same as local, use anchor label with LOCAL timezone
+            timezones.append((anchor_city[0], "LOCAL"))
+        else:
+            # Anchor is different from local
+            timezones.append(anchor_city)
+        seen_tzs.add(anchor_city[1])
+
+        # Add local if it's not the anchor
+        if anchor_city[1] != local_tz_str:
+            timezones.append(local_entry)
+            seen_tzs.add(local_tz_str)
     else:
-        # Otherwise, show local with its own label
+        # No anchor, local goes first
         timezones.append(local_entry)
         seen_tzs.add(local_tz_str)
 
-    # Add specified cities (avoiding duplicates)
+    # Add remaining specified cities (avoiding duplicates)
     for label, tz in cities_to_show:
         # Skip if already added (including anchor which is in cities_to_show)
         if tz not in seen_tzs and tz != "LOCAL":
