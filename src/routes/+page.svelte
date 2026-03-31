@@ -10,7 +10,7 @@
 		searchTimezones,
 		type TimezoneInfo,
 	} from '$lib/timezones';
-	import { X, ChevronUp, ChevronDown, Search, Globe, ChevronLeft, ChevronRight, CalendarDays } from '@lucide/svelte';
+	import { X, ChevronUp, ChevronDown, Search, Globe, ChevronLeft, ChevronRight, CalendarDays, Dot } from '@lucide/svelte';
 	import * as Popover from '$lib/components/ui/popover';
 	import { Calendar } from '$lib/components/ui/calendar';
 	import { CalendarDate, today, getLocalTimeZone } from '@internationalized/date';
@@ -480,15 +480,17 @@
 					<ChevronRight class="h-4 w-4" />
 				</button>
 
-				{#if !isToday}
-					<button
-						type="button"
-						onclick={goToday}
-						class="ml-1 px-2 py-1 rounded-md text-xs font-medium bg-blue-500/15 text-blue-400 hover:bg-blue-500/25 transition-colors"
-					>
-						Today
-					</button>
-				{/if}
+				<!-- Today button (always present, highlighted when not on today) -->
+				<button
+					type="button"
+					onclick={goToday}
+					class="p-1 rounded-md transition-colors {isToday
+						? 'text-muted-foreground/30 cursor-default'
+						: 'text-blue-400 hover:bg-blue-500/15'}"
+					title="Go to today"
+				>
+					<Dot class="h-5 w-5" strokeWidth={6} />
+				</button>
 			</div>
 		</div>
 	</div>
