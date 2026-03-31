@@ -389,7 +389,12 @@
 							<div class="group relative flex items-center gap-3">
 								<!-- Timezone label -->
 								<div class="w-36 shrink-0 relative pr-2">
-									<div class="font-medium text-sm leading-tight">{getCityName(tzId)}</div>
+									<div class="font-medium text-sm leading-tight flex items-center gap-1.5">
+									{getCityName(tzId)}
+									{#if tzId === localTz}
+										<span class="text-[9px] font-medium text-blue-400 bg-blue-400/10 px-1 py-px rounded">HOME</span>
+									{/if}
+								</div>
 									<div class="text-[11px] text-muted-foreground leading-tight mt-0.5">
 										{formatTime(tzId)} &middot; {getTimezoneAbbr(tzId)}
 									</div>
@@ -431,8 +436,8 @@
 										/>
 										<defs>
 											<linearGradient id="daylight-{rowIndex}" x1="0" y1="0" x2="0" y2="1">
-												<stop offset="0%" stop-color="rgb(250 204 21)" stop-opacity="0.12" />
-												<stop offset="100%" stop-color="rgb(250 204 21)" stop-opacity="0.02" />
+												<stop offset="0%" stop-color="white" stop-opacity="0.08" />
+												<stop offset="100%" stop-color="white" stop-opacity="0.01" />
 											</linearGradient>
 										</defs>
 									</svg>
@@ -461,8 +466,8 @@
 														: actualHour >= 9 && actualHour < 17
 															? 'text-foreground'
 															: actualHour >= 22 || actualHour < 6
-																? 'text-muted-foreground/50'
-																: 'text-muted-foreground/80'}">
+																? 'text-muted-foreground'
+																: 'text-foreground/70'}">
 													{tzHour.displayHour}{tzHour.period[0].toLowerCase()}
 												</span>
 												{#if tzHour.dayOffset !== 0}
