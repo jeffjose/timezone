@@ -52,10 +52,10 @@
 			selectedTimezones = [localTz];
 		}
 
-		// Update clock every 30 seconds
+		// Update clock every 15 seconds for minute accuracy
 		const interval = setInterval(() => {
 			now = new Date();
-		}, 30000);
+		}, 15000);
 
 		return () => clearInterval(interval);
 	});
@@ -154,10 +154,8 @@
 		}
 	}
 
-	function getHourForTimezone(tz: string, hour: number): { displayHour: number; period: string; isCurrentHour: boolean; dayOffset: number } {
+	function getHourForTimezone(tz: string, hour: number): { displayHour: number; period: string; isCurrentHour: boolean; dayOffset: number; minuteProgress: number } {
 		const offsetMinutes = getTimezoneOffset(tz, now);
-		const localOffset = getTimezoneOffset(localTz, now);
-		const diffMinutes = offsetMinutes - localOffset;
 
 		// Get current hour in the first timezone (reference)
 		const refOffset = getTimezoneOffset(selectedTimezones[0], now);
@@ -166,15 +164,16 @@
 		const tzHour = ((hour + Math.round(refDiff / 60)) % 24 + 24) % 24;
 		const dayOffset = Math.floor((hour + Math.round(refDiff / 60)) / 24);
 
-		// Check if this is current hour
+		// Check if this is current hour and get minute progress
 		const nowInTz = new Date(now.toLocaleString('en-US', { timeZone: tz }));
 		const currentTzHour = nowInTz.getHours();
 		const isCurrentHour = tzHour === currentTzHour;
+		const minuteProgress = isCurrentHour ? nowInTz.getMinutes() / 60 : 0;
 
 		const displayHour = tzHour % 12 || 12;
 		const period = tzHour < 12 ? 'AM' : 'PM';
 
-		return { displayHour, period, isCurrentHour, dayOffset };
+		return { displayHour, period, isCurrentHour, dayOffset, minuteProgress };
 	}
 
 	function getCurrentHourIndex(): number {
@@ -337,8 +336,8 @@
 							</div>
 						</div>
 
-						<!-- Hour cells - Google Calendar style -->
-						<div class="flex-1 flex overflow-x-auto no-scrollbar border-l border-border/40">
+						<!-- Hour cells -->
+						<div class="flex-1 flex overflow-x-auto no-scrollbar border-l border-border/50">
 							{#each hours as hour}
 								{@const tzHour = getHourForTimezone(tzId, hour)}
 								{@const isNight = isNightHour(
@@ -346,21 +345,30 @@
 								)}
 								{@const isNow = tzHour.isCurrentHour}
 								<div
-									class="flex-1 min-w-[2.5rem] h-8 flex items-center justify-center border-r border-border/40 relative
+									class="flex-1 min-w-[2.75rem] h-10 flex items-center justify-center border-r border-border/50 relative
 										{isNow
-											? 'bg-primary/15'
+											? 'bg-blue-500/10'
 											: isNight
-												? 'bg-muted/30'
+												? 'bg-muted/50'
 												: ''}"
 								>
 									{#if isNow}
-										<div class="absolute left-0 top-0 bottom-0 w-0.5 bg-primary"></div>
+										<!-- Minute-accurate blue bar -->
+										<div
+											class="absolute top-0 bottom-0 w-[2px] bg-blue-500 z-10"
+											style="left: {tzHour.minuteProgress * 100}%"
+										></div>
+										<!-- Blue dot on top of bar -->
+										<div
+											class="absolute -top-[3px] w-[8px] h-[8px] rounded-full bg-blue-500 z-10"
+											style="left: calc({tzHour.minuteProgress * 100}% - 3px)"
+										></div>
 									{/if}
-									<span class="text-[11px] {isNow ? 'text-primary font-semibold' : isNight ? 'text-muted-foreground/70' : 'text-foreground/80'}">
+									<span class="text-xs font-medium {isNow ? 'text-blue-400' : isNight ? 'text-muted-foreground' : 'text-foreground'}">
 										{tzHour.displayHour}{tzHour.period[0].toLowerCase()}
 									</span>
 									{#if tzHour.dayOffset !== 0}
-										<span class="absolute -top-0.5 right-0.5 text-[7px] {isNow ? 'text-primary/60' : 'text-muted-foreground/50'}">
+										<span class="absolute top-0 right-0.5 text-[9px] font-medium {isNow ? 'text-blue-400/80' : 'text-muted-foreground'}">
 											{tzHour.dayOffset > 0 ? '+1' : '-1'}
 										</span>
 									{/if}
