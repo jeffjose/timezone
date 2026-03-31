@@ -17,7 +17,7 @@
 	let allTimezones: TimezoneInfo[] = $state([]);
 	let selectedTimezones: string[] = $state([]);
 	let query = $state('');
-	let searchResults: TimezoneInfo[] = $state([]);
+	let searchResults: { tz: TimezoneInfo; displayName?: string }[] = $state([]);
 	let searchFocused = $state(false);
 	let highlightedIndex = $state(-1);
 	let inputEl: HTMLInputElement | undefined = $state();
@@ -94,7 +94,7 @@
 	function handleSearch() {
 		if (query.trim().length > 0) {
 			searchResults = searchTimezones(query, allTimezones).filter(
-				(tz) => !selectedTimezones.includes(tz.id)
+				(r) => !selectedTimezones.includes(r.tz.id)
 			);
 			highlightedIndex = searchResults.length > 0 ? 0 : -1;
 		} else {
@@ -115,7 +115,7 @@
 				scrollHighlightedIntoView();
 			} else if (e.key === 'Enter' && highlightedIndex >= 0) {
 				e.preventDefault();
-				addTimezone(searchResults[highlightedIndex]);
+				addTimezone(searchResults[highlightedIndex].tz);
 			} else if (e.key === 'Escape') {
 				e.preventDefault();
 				query = '';
@@ -270,22 +270,26 @@
 					bind:this={dropdownEl}
 					class="absolute top-full left-0 right-0 mt-1 rounded-lg border border-border bg-popover shadow-lg max-h-64 overflow-y-auto z-50"
 				>
-					{#each searchResults as tz, i}
+					{#each searchResults as result, i}
 						<button
 							type="button"
 							data-index={i}
-							onclick={() => addTimezone(tz)}
+							onclick={() => addTimezone(result.tz)}
 							onmouseenter={() => (highlightedIndex = i)}
 							class="w-full flex items-center justify-between px-3 py-2 text-sm transition-colors {highlightedIndex === i
 								? 'bg-accent text-accent-foreground'
 								: 'text-popover-foreground hover:bg-accent/50'}"
 						>
 							<span>
-								<span class="font-medium">{tz.city}</span>
-								<span class="text-muted-foreground ml-2">{tz.region}</span>
+								<span class="font-medium">{result.displayName || result.tz.city}</span>
+								{#if result.displayName}
+									<span class="text-muted-foreground ml-2">{result.tz.city}</span>
+								{:else}
+									<span class="text-muted-foreground ml-2">{result.tz.region}</span>
+								{/if}
 							</span>
 							<span class="text-muted-foreground text-xs">
-								{getTimezoneAbbr(tz.id)} {formatOffset(getTimezoneOffset(tz.id))}
+								{getTimezoneAbbr(result.tz.id)} {formatOffset(getTimezoneOffset(result.tz.id))}
 							</span>
 						</button>
 					{/each}
