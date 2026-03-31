@@ -68,9 +68,23 @@ export function getHourInTimezone(tz: string, baseDate: Date, hour: number): { h
 	};
 }
 
+// Returns time-of-day tier for shading:
+// 'night'   = 10 PM - 6 AM  (sleep)
+// 'evening' = 6-8 AM, 6-10 PM (early morning / evening)
+// 'work'    = 9 AM - 5 PM (work hours)
+// 'day'     = 8-9 AM, 5-6 PM (shoulder hours)
+export type DayTier = 'night' | 'evening' | 'work' | 'day';
+
+export function getDayTier(hour: number): DayTier {
+	if (hour >= 22 || hour < 6) return 'night';
+	if (hour >= 6 && hour < 8) return 'evening';
+	if (hour >= 20 && hour < 22) return 'evening';
+	if (hour >= 9 && hour < 17) return 'work';
+	return 'day'; // 8-9 AM, 5-8 PM
+}
+
 export function isNightHour(hour: number): boolean {
-	// Night is roughly 7 PM (19) to 6 AM (6)
-	return hour >= 19 || hour < 7;
+	return hour >= 22 || hour < 6;
 }
 
 export function getCurrentHourInTimezone(tz: string): number {
