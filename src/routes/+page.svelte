@@ -67,10 +67,8 @@
 	}
 
 	function addTimezone(tz: TimezoneInfo) {
-		if (!selectedTimezones.includes(tz.id)) {
-			selectedTimezones = [...selectedTimezones, tz.id];
-			updateUrl();
-		}
+		selectedTimezones = [...selectedTimezones, tz.id];
+		updateUrl();
 		query = '';
 		searchResults = [];
 		highlightedIndex = -1;
@@ -93,9 +91,7 @@
 
 	function handleSearch() {
 		if (query.trim().length > 0) {
-			searchResults = searchTimezones(query, allTimezones).filter(
-				(r) => !selectedTimezones.includes(r.tz.id)
-			);
+			searchResults = searchTimezones(query, allTimezones);
 			highlightedIndex = searchResults.length > 0 ? 0 : -1;
 		} else {
 			searchResults = [];
