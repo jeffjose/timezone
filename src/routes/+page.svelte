@@ -11,7 +11,7 @@
 		searchTimezones,
 		type TimezoneInfo,
 	} from '$lib/timezones';
-	import { X, ChevronUp, ChevronDown, Search } from '@lucide/svelte';
+	import { X, ChevronUp, ChevronDown, Search, Globe } from '@lucide/svelte';
 
 	// State
 	let allTimezones: TimezoneInfo[] = $state([]);
@@ -225,7 +225,10 @@
 <div class="min-h-screen bg-background text-foreground flex flex-col">
 	<!-- Header -->
 	<div class="flex flex-col items-center pt-12 pb-8 px-4">
-		<h1 class="text-2xl font-light tracking-[0.3em] text-muted-foreground mb-8">TIMEZONE</h1>
+		<div class="flex items-center gap-3 mb-8">
+			<Globe class="h-6 w-6 text-muted-foreground" strokeWidth={1.5} />
+			<h1 class="text-2xl font-light tracking-[0.3em] text-muted-foreground">TIMEZONE</h1>
+		</div>
 
 		<!-- Search box -->
 		<div class="search-container relative w-full max-w-2xl">
