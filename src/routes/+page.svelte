@@ -31,6 +31,7 @@
 	let now = $state(new Date());
 	let dropdownEl: HTMLDivElement | undefined = $state();
 	let hoverPercent: number | null = $state(null);
+	let gridOpacity = $state(1);
 
 	// Selected date for the grid (defaults to today)
 	let selectedDate: Date = $state(new Date());
@@ -67,19 +68,35 @@
 		return days;
 	}
 
+	function animateDateChange(fn: () => void) {
+		gridOpacity = 0;
+		setTimeout(() => {
+			fn();
+			gridOpacity = 1;
+		}, 120);
+	}
+
 	function goToDate(date: Date) {
-		selectedDate = new Date(date);
+		if (isSameDay(date, selectedDate)) return;
+		animateDateChange(() => {
+			selectedDate = new Date(date);
+		});
 		calendarOpen = false;
 	}
 
 	function goToday() {
-		selectedDate = new Date();
+		if (isToday) return;
+		animateDateChange(() => {
+			selectedDate = new Date();
+		});
 	}
 
 	function shiftDate(days: number) {
-		const d = new Date(selectedDate);
-		d.setDate(d.getDate() + days);
-		selectedDate = d;
+		animateDateChange(() => {
+			const d = new Date(selectedDate);
+			d.setDate(d.getDate() + days);
+			selectedDate = d;
+		});
 	}
 
 	onMount(() => {
@@ -359,13 +376,13 @@
 			<!-- Search box -->
 			<div class="search-container relative flex-1">
 				<div
-					class="flex items-center flex-wrap gap-1.5 rounded-lg border border-border bg-card px-3 py-2 transition-colors focus-within:border-muted-foreground/50"
+					class="flex items-center gap-1.5 rounded-lg border border-border bg-card px-3 py-2 transition-colors focus-within:border-muted-foreground/50 overflow-hidden"
 				>
 					<Search class="h-4 w-4 text-muted-foreground shrink-0" />
 
-					{#each selectedTimezones as entry, i}
+					{#each selectedTimezones.slice(0, 3) as entry, i}
 						<span
-							class="inline-flex items-center gap-1 rounded-md bg-secondary px-2 py-0.5 text-sm text-secondary-foreground"
+							class="inline-flex items-center gap-1 rounded-md bg-secondary px-2 py-0.5 text-sm text-secondary-foreground shrink-0"
 						>
 							{entry.label}
 							<button
@@ -378,6 +395,12 @@
 						</span>
 					{/each}
 
+					{#if selectedTimezones.length > 3}
+						<span class="text-xs text-muted-foreground shrink-0">
+							+{selectedTimezones.length - 3}
+						</span>
+					{/if}
+
 					<input
 						bind:this={inputEl}
 						bind:value={query}
@@ -386,7 +409,7 @@
 						onfocus={() => (searchFocused = true)}
 						type="text"
 						placeholder={selectedTimezones.length === 0 ? 'Search timezones...' : 'Add timezone...'}
-						class="flex-1 min-w-[120px] bg-transparent text-sm text-foreground placeholder:text-muted-foreground outline-none"
+						class="flex-1 min-w-[80px] bg-transparent text-sm text-foreground placeholder:text-muted-foreground outline-none"
 					/>
 				</div>
 
@@ -514,7 +537,8 @@
 
 				<!-- Grid with lines overlay -->
 				<div
-					class="relative"
+					class="relative transition-opacity duration-150"
+					style="opacity: {gridOpacity}"
 					onmousemove={handleCellsMouseMove}
 					onmouseleave={handleCellsMouseLeave}
 					role="presentation"
