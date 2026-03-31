@@ -10,7 +10,10 @@
 		searchTimezones,
 		type TimezoneInfo,
 	} from '$lib/timezones';
-	import { X, ChevronUp, ChevronDown, Search, Globe } from '@lucide/svelte';
+	import { X, ChevronUp, ChevronDown, Search, Globe, ChevronLeft, ChevronRight, CalendarDays } from '@lucide/svelte';
+	import * as Popover from '$lib/components/ui/popover';
+	import { Calendar } from '$lib/components/ui/calendar';
+	import { CalendarDate, today, getLocalTimeZone } from '@internationalized/date';
 
 	interface SelectedTz {
 		id: string;
@@ -29,21 +32,59 @@
 	let dropdownEl: HTMLDivElement | undefined = $state();
 	let hoverPercent: number | null = $state(null);
 
+	// Selected date for the grid (defaults to today)
+	let selectedDate: Date = $state(new Date());
+	let calendarOpen = $state(false);
+
 	// Derived
 	let showDropdown = $derived(searchFocused && query.length > 0 && searchResults.length > 0);
 	let selectedIds = $derived(selectedTimezones.map((t) => t.id));
 	let refTzId = $derived(selectedTimezones[0]?.id);
+	let isToday = $derived(isSameDay(selectedDate, new Date()));
 
-	// Get the local timezone
+	// Calendar value for shadcn calendar
+	let calendarValue = $derived(
+		new CalendarDate(selectedDate.getFullYear(), selectedDate.getMonth() + 1, selectedDate.getDate())
+	);
+
+	// Days to show in the quick-nav bar
+	let navDays = $derived(getNavDays(selectedDate));
+
 	const localTz = Intl.DateTimeFormat().resolvedOptions().timeZone;
-
-	// Generate hours array (0-23)
 	const hours = Array.from({ length: 24 }, (_, i) => i);
+
+	function isSameDay(a: Date, b: Date): boolean {
+		return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
+	}
+
+	function getNavDays(centerDate: Date): Date[] {
+		const days: Date[] = [];
+		for (let i = -2; i <= 4; i++) {
+			const d = new Date(centerDate);
+			d.setDate(d.getDate() + i);
+			days.push(d);
+		}
+		return days;
+	}
+
+	function goToDate(date: Date) {
+		selectedDate = new Date(date);
+		calendarOpen = false;
+	}
+
+	function goToday() {
+		selectedDate = new Date();
+	}
+
+	function shiftDate(days: number) {
+		const d = new Date(selectedDate);
+		d.setDate(d.getDate() + days);
+		selectedDate = d;
+	}
 
 	onMount(() => {
 		allTimezones = getAllTimezones();
 
-		// Read initial timezones from URL
 		const urlTz = $page.url.searchParams.get('tz');
 		if (urlTz) {
 			const entries = urlTz.split(',').filter((tz) => {
@@ -60,7 +101,6 @@
 			selectedTimezones = [{ id: localTz, label: getCityName(localTz) }];
 		}
 
-		// Update clock every second for seconds display
 		const interval = setInterval(() => {
 			now = new Date();
 		}, 1000);
@@ -140,7 +180,6 @@
 		});
 	}
 
-	// Global key capture - focus search on any key
 	function handleGlobalKeydown(e: KeyboardEvent) {
 		if (document.activeElement === inputEl || e.ctrlKey || e.metaKey || e.altKey) return;
 		if (e.key.length === 1) {
@@ -151,17 +190,29 @@
 		}
 	}
 
+	// Use selectedDate as the base for hour calculations (not now)
+	function getBaseDate(): Date {
+		if (isToday) return now;
+		// Use noon of selectedDate to avoid DST edge cases
+		const d = new Date(selectedDate);
+		d.setHours(12, 0, 0, 0);
+		return d;
+	}
+
 	function getHourForTimezone(tz: string, hour: number): { displayHour: number; period: string; isCurrentHour: boolean; dayOffset: number } {
-		const offsetMinutes = getTimezoneOffset(tz, now);
-		const refOffset = getTimezoneOffset(refTzId, now);
+		const base = getBaseDate();
+		const offsetMinutes = getTimezoneOffset(tz, base);
+		const refOffset = getTimezoneOffset(refTzId, base);
 		const refDiff = offsetMinutes - refOffset;
 
 		const tzHour = ((hour + Math.round(refDiff / 60)) % 24 + 24) % 24;
 		const dayOffset = Math.floor((hour + Math.round(refDiff / 60)) / 24);
 
-		const nowInTz = new Date(now.toLocaleString('en-US', { timeZone: tz }));
-		const currentTzHour = nowInTz.getHours();
-		const isCurrentHour = tzHour === currentTzHour;
+		let isCurrentHour = false;
+		if (isToday) {
+			const nowInTz = new Date(now.toLocaleString('en-US', { timeZone: tz }));
+			isCurrentHour = tzHour === nowInTz.getHours();
+		}
 
 		const displayHour = tzHour % 12 || 12;
 		const period = tzHour < 12 ? 'AM' : 'PM';
@@ -170,19 +221,19 @@
 	}
 
 	function getNowLinePercent(): number {
-		if (!refTzId) return 0;
+		if (!refTzId || !isToday) return -1;
 		const nowInRef = new Date(now.toLocaleString('en-US', { timeZone: refTzId }));
 		return ((nowInRef.getHours() + nowInRef.getMinutes() / 60) / 24) * 100;
 	}
 
 	function getTzHourValue(tz: string, hour: number): number {
-		const offsetMinutes = getTimezoneOffset(tz, now);
-		const refOffset = getTimezoneOffset(refTzId, now);
+		const base = getBaseDate();
+		const offsetMinutes = getTimezoneOffset(tz, base);
+		const refOffset = getTimezoneOffset(refTzId, base);
 		const refDiff = offsetMinutes - refOffset;
 		return ((hour + Math.round(refDiff / 60)) % 24 + 24) % 24;
 	}
 
-	// SVG daylight arc: peaks at ~1PM, trough at ~1AM
 	function getDaylightPath(tz: string): string {
 		const points: { x: number; y: number }[] = [];
 		const height = 40;
@@ -209,15 +260,6 @@
 		return d;
 	}
 
-	function formatTime(tz: string): string {
-		return new Intl.DateTimeFormat('en-US', {
-			timeZone: tz,
-			hour: 'numeric',
-			minute: '2-digit',
-			hour12: true,
-		}).format(now);
-	}
-
 	function formatTimeWithSeconds(tz: string): string {
 		return new Intl.DateTimeFormat('en-US', {
 			timeZone: tz,
@@ -233,11 +275,11 @@
 		return (parts[parts.length - 1] || tzId).replace(/_/g, ' ');
 	}
 
-	// Hover: compute time + date at hovered x-position for a timezone
 	function getHoveredTime(tz: string, percent: number): { time: string; date: string } {
+		const base = getBaseDate();
 		const refHour = (percent / 100) * 24;
-		const offsetMinutes = getTimezoneOffset(tz, now);
-		const refOffset = getTimezoneOffset(refTzId, now);
+		const offsetMinutes = getTimezoneOffset(tz, base);
+		const refOffset = getTimezoneOffset(refTzId, base);
 		const refDiff = offsetMinutes - refOffset;
 		const tzHourRaw = refHour + Math.round(refDiff / 60);
 		const dayOffset = Math.floor(tzHourRaw / 24);
@@ -248,10 +290,8 @@
 		const period = h < 12 ? 'AM' : 'PM';
 		const time = `${displayHour}:${String(m).padStart(2, '0')} ${period}`;
 
-		// Compute the date at the hovered position
-		const hoveredDate = new Date(now.getTime() + dayOffset * 86400000);
+		const hoveredDate = new Date(selectedDate.getTime() + dayOffset * 86400000);
 		const date = new Intl.DateTimeFormat('en-US', {
-			timeZone: tz,
 			weekday: 'short',
 			month: 'short',
 			day: 'numeric',
@@ -261,7 +301,6 @@
 	}
 
 	function handleCellsMouseMove(e: MouseEvent) {
-		// Find the first cells-area element to get exact bounds
 		const container = e.currentTarget as HTMLElement;
 		const cellsEl = container.querySelector('.cells-area');
 		if (!cellsEl) return;
@@ -273,12 +312,31 @@
 		hoverPercent = null;
 	}
 
-	// Click outside to close dropdown
 	function handleClickOutside(e: MouseEvent) {
 		const target = e.target as HTMLElement;
 		if (!target.closest('.search-container')) {
 			searchFocused = false;
 		}
+	}
+
+	// Get date for a given timezone at midnight cell
+	function getMidnightDateLabel(tz: string, dayOffset: number): { weekday: string; month: string; day: number } {
+		const d = new Date(selectedDate.getTime() + dayOffset * 86400000);
+		const weekday = new Intl.DateTimeFormat('en-US', { weekday: 'short' }).format(d).toUpperCase();
+		const month = new Intl.DateTimeFormat('en-US', { month: 'short' }).format(d).toUpperCase();
+		const day = d.getDate();
+		return { weekday, month, day };
+	}
+
+	function formatNavDay(d: Date): { dayNum: string; weekday: string; isWeekend: boolean } {
+		const dayNum = String(d.getDate());
+		const weekday = new Intl.DateTimeFormat('en-US', { weekday: 'short' }).format(d);
+		const dow = d.getDay();
+		return { dayNum, weekday, isWeekend: dow === 0 || dow === 6 };
+	}
+
+	function formatNavMonth(d: Date): string {
+		return new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric' }).format(d);
 	}
 </script>
 
@@ -290,77 +348,148 @@
 
 <div class="min-h-screen bg-background text-foreground flex flex-col">
 	<!-- Header -->
-	<div class="flex flex-col items-center pt-12 pb-8 px-4">
-		<div class="flex items-center gap-3 mb-8">
+	<div class="flex flex-col items-center pt-8 pb-6 px-4">
+		<div class="flex items-center gap-3 mb-6">
 			<Globe class="h-6 w-6 text-muted-foreground" strokeWidth={1.5} />
 			<h1 class="text-2xl font-light tracking-[0.3em] text-muted-foreground">TIMEZONE</h1>
 		</div>
 
-		<!-- Search box -->
-		<div class="search-container relative w-full max-w-2xl">
-			<div
-				class="flex items-center flex-wrap gap-1.5 rounded-lg border border-border bg-card px-3 py-2 transition-colors focus-within:border-muted-foreground/50"
-			>
-				<Search class="h-4 w-4 text-muted-foreground shrink-0" />
+		<!-- Search + Date nav row -->
+		<div class="w-full max-w-4xl flex items-center gap-4">
+			<!-- Search box -->
+			<div class="search-container relative flex-1">
+				<div
+					class="flex items-center flex-wrap gap-1.5 rounded-lg border border-border bg-card px-3 py-2 transition-colors focus-within:border-muted-foreground/50"
+				>
+					<Search class="h-4 w-4 text-muted-foreground shrink-0" />
 
-				{#each selectedTimezones as entry, i}
-					<span
-						class="inline-flex items-center gap-1 rounded-md bg-secondary px-2 py-0.5 text-sm text-secondary-foreground"
-					>
-						{entry.label}
-						<button
-							type="button"
-							onclick={() => removeTimezoneAt(i)}
-							class="hover:text-foreground text-muted-foreground transition-colors"
+					{#each selectedTimezones as entry, i}
+						<span
+							class="inline-flex items-center gap-1 rounded-md bg-secondary px-2 py-0.5 text-sm text-secondary-foreground"
 						>
-							<X class="h-3 w-3" />
-						</button>
-					</span>
-				{/each}
+							{entry.label}
+							<button
+								type="button"
+								onclick={() => removeTimezoneAt(i)}
+								class="hover:text-foreground text-muted-foreground transition-colors"
+							>
+								<X class="h-3 w-3" />
+							</button>
+						</span>
+					{/each}
 
-				<input
-					bind:this={inputEl}
-					bind:value={query}
-					oninput={handleSearch}
-					onkeydown={handleKeydown}
-					onfocus={() => (searchFocused = true)}
-					type="text"
-					placeholder={selectedTimezones.length === 0 ? 'Search timezones...' : 'Add timezone...'}
-					class="flex-1 min-w-[120px] bg-transparent text-sm text-foreground placeholder:text-muted-foreground outline-none"
-				/>
+					<input
+						bind:this={inputEl}
+						bind:value={query}
+						oninput={handleSearch}
+						onkeydown={handleKeydown}
+						onfocus={() => (searchFocused = true)}
+						type="text"
+						placeholder={selectedTimezones.length === 0 ? 'Search timezones...' : 'Add timezone...'}
+						class="flex-1 min-w-[120px] bg-transparent text-sm text-foreground placeholder:text-muted-foreground outline-none"
+					/>
+				</div>
+
+				{#if showDropdown}
+					<div
+						bind:this={dropdownEl}
+						class="absolute top-full left-0 right-0 mt-1 rounded-lg border border-border bg-popover shadow-lg max-h-64 overflow-y-auto z-50"
+					>
+						{#each searchResults as result, i}
+							<button
+								type="button"
+								data-index={i}
+								onclick={() => addTimezone(result.tz, result.displayName)}
+								onmouseenter={() => (highlightedIndex = i)}
+								class="w-full flex items-center justify-between px-3 py-2 text-sm transition-colors {highlightedIndex === i
+									? 'bg-accent text-accent-foreground'
+									: 'text-popover-foreground hover:bg-accent/50'}"
+							>
+								<span>
+									<span class="font-medium">{result.displayName || result.tz.city}</span>
+									{#if result.displayName}
+										<span class="text-muted-foreground ml-2">{result.tz.city}</span>
+									{:else}
+										<span class="text-muted-foreground ml-2">{result.tz.region}</span>
+									{/if}
+								</span>
+								<span class="text-muted-foreground text-xs">
+									{getTimezoneAbbr(result.tz.id)} {formatOffset(getTimezoneOffset(result.tz.id))}
+								</span>
+							</button>
+						{/each}
+					</div>
+				{/if}
 			</div>
 
-			<!-- Dropdown -->
-			{#if showDropdown}
-				<div
-					bind:this={dropdownEl}
-					class="absolute top-full left-0 right-0 mt-1 rounded-lg border border-border bg-popover shadow-lg max-h-64 overflow-y-auto z-50"
+			<!-- Date navigator -->
+			<div class="flex items-center gap-1">
+				<button
+					type="button"
+					onclick={() => shiftDate(-1)}
+					class="p-1.5 rounded-md hover:bg-accent text-muted-foreground hover:text-foreground transition-colors"
 				>
-					{#each searchResults as result, i}
-						<button
-							type="button"
-							data-index={i}
-							onclick={() => addTimezone(result.tz, result.displayName)}
-							onmouseenter={() => (highlightedIndex = i)}
-							class="w-full flex items-center justify-between px-3 py-2 text-sm transition-colors {highlightedIndex === i
-								? 'bg-accent text-accent-foreground'
-								: 'text-popover-foreground hover:bg-accent/50'}"
-						>
-							<span>
-								<span class="font-medium">{result.displayName || result.tz.city}</span>
-								{#if result.displayName}
-									<span class="text-muted-foreground ml-2">{result.tz.city}</span>
-								{:else}
-									<span class="text-muted-foreground ml-2">{result.tz.region}</span>
-								{/if}
-							</span>
-							<span class="text-muted-foreground text-xs">
-								{getTimezoneAbbr(result.tz.id)} {formatOffset(getTimezoneOffset(result.tz.id))}
-							</span>
-						</button>
-					{/each}
-				</div>
-			{/if}
+					<ChevronLeft class="h-4 w-4" />
+				</button>
+
+				<!-- Calendar popover -->
+				<Popover.Root bind:open={calendarOpen}>
+					<Popover.Trigger class="p-1.5 rounded-md hover:bg-accent text-muted-foreground hover:text-foreground transition-colors">
+						<CalendarDays class="h-4 w-4" />
+					</Popover.Trigger>
+					<Popover.Content class="w-auto p-0" align="center">
+						<Calendar
+							type="single"
+							value={calendarValue}
+							onValueChange={(v) => {
+								if (v) {
+									goToDate(new Date(v.year, v.month - 1, v.day));
+								}
+							}}
+						/>
+					</Popover.Content>
+				</Popover.Root>
+
+				<!-- Quick day nav -->
+				{#each navDays as navDay}
+					{@const info = formatNavDay(navDay)}
+					{@const isSelected = isSameDay(navDay, selectedDate)}
+					{@const isDayToday = isSameDay(navDay, new Date())}
+					<button
+						type="button"
+						onclick={() => goToDate(navDay)}
+						class="flex flex-col items-center min-w-[2.25rem] px-1 py-0.5 rounded-md text-xs transition-colors
+							{isSelected
+								? 'bg-primary text-primary-foreground'
+								: isDayToday
+									? 'bg-blue-500/15 text-blue-400 hover:bg-blue-500/25'
+									: info.isWeekend
+										? 'text-muted-foreground/60 hover:bg-accent'
+										: 'text-muted-foreground hover:bg-accent hover:text-foreground'}"
+					>
+						<span class="text-[9px] leading-tight font-medium">{info.weekday}</span>
+						<span class="text-sm font-semibold leading-tight">{info.dayNum}</span>
+					</button>
+				{/each}
+
+				<button
+					type="button"
+					onclick={() => shiftDate(1)}
+					class="p-1.5 rounded-md hover:bg-accent text-muted-foreground hover:text-foreground transition-colors"
+				>
+					<ChevronRight class="h-4 w-4" />
+				</button>
+
+				{#if !isToday}
+					<button
+						type="button"
+						onclick={goToday}
+						class="ml-1 px-2 py-1 rounded-md text-xs font-medium bg-blue-500/15 text-blue-400 hover:bg-blue-500/25 transition-colors"
+					>
+						Today
+					</button>
+				{/if}
+			</div>
 		</div>
 	</div>
 
@@ -368,16 +497,18 @@
 	{#if selectedTimezones.length > 0}
 		<div class="flex-1 px-4 pb-8">
 			<div class="max-w-6xl mx-auto">
-				<!-- Blue dot above the grid -->
-				<div class="flex">
-					<div class="w-44 shrink-0"></div>
-					<div class="flex-1 relative">
-						<div
-							class="absolute -top-3 w-[10px] h-[10px] rounded-full bg-blue-500 z-20 -translate-x-1/2"
-							style="left: {getNowLinePercent()}%"
-						></div>
+				<!-- Blue dot above the grid (only when viewing today) -->
+				{#if isToday}
+					<div class="flex">
+						<div class="w-44 shrink-0"></div>
+						<div class="flex-1 relative">
+							<div
+								class="absolute -top-3 w-[10px] h-[10px] rounded-full bg-blue-500 z-20 -translate-x-1/2"
+								style="left: {getNowLinePercent()}%"
+							></div>
+						</div>
 					</div>
-				</div>
+				{/if}
 
 				<!-- Grid with lines overlay -->
 				<div
@@ -386,18 +517,20 @@
 					onmouseleave={handleCellsMouseLeave}
 					role="presentation"
 				>
-					<!-- Blue now-line (continuous across all rows) -->
-					<div class="absolute top-0 bottom-0 flex pointer-events-none" style="left: 0; right: 0;">
-						<div class="w-44 shrink-0"></div>
-						<div class="flex-1 relative">
-							<div
-								class="absolute top-0 bottom-0 w-[2px] bg-blue-500 z-20 -translate-x-1/2"
-								style="left: {getNowLinePercent()}%"
-							></div>
+					<!-- Blue now-line (only when viewing today) -->
+					{#if isToday && getNowLinePercent() >= 0}
+						<div class="absolute top-0 bottom-0 flex pointer-events-none" style="left: 0; right: 0;">
+							<div class="w-44 shrink-0"></div>
+							<div class="flex-1 relative">
+								<div
+									class="absolute top-0 bottom-0 w-[2px] bg-blue-500 z-20 -translate-x-1/2"
+									style="left: {getNowLinePercent()}%"
+								></div>
+							</div>
 						</div>
-					</div>
+					{/if}
 
-					<!-- Gray hover-line (continuous across all rows) -->
+					<!-- Gray hover-line -->
 					{#if hoverPercent !== null}
 						<div class="absolute top-0 bottom-0 flex pointer-events-none" style="left: 0; right: 0;">
 							<div class="w-44 shrink-0"></div>
@@ -436,11 +569,15 @@
 									{#if hoverPercent !== null}
 										{@const hovered = getHoveredTime(entry.id, hoverPercent)}
 										<div class="text-[11px] text-foreground/80 leading-tight mt-0.5 font-medium">
-											{hovered.time} &middot; {hovered.date}
+											{hovered.date} &middot; {hovered.time}
 										</div>
 									{:else}
 										<div class="text-[11px] text-muted-foreground leading-tight mt-0.5">
-											{formatTimeWithSeconds(entry.id)} &middot; {getTimezoneAbbr(entry.id)}
+											{#if isToday}
+												{formatTimeWithSeconds(entry.id)} &middot; {getTimezoneAbbr(entry.id)}
+											{:else}
+												{getTimezoneAbbr(entry.id)} &middot; {formatOffset(getTimezoneOffset(entry.id, getBaseDate()))}
+											{/if}
 										</div>
 									{/if}
 
@@ -468,8 +605,7 @@
 								</div>
 
 								<!-- Hour cells with daylight arc -->
-								<!-- svelte-ignore binding_property_non_reactive -->
-							<div class="flex-1 relative overflow-x-auto no-scrollbar cells-area">
+								<div class="flex-1 relative overflow-x-auto no-scrollbar cells-area">
 									<!-- Daylight arc SVG -->
 									<svg
 										class="absolute inset-0 w-full h-full pointer-events-none"
@@ -497,15 +633,15 @@
 											{@const isMidnight = actualHour === 0}
 											<div
 												class="flex-1 min-w-[2.75rem] h-10 flex items-center justify-center relative
-													{isMidnight ? 'border-l border-l-muted-foreground/50' : 'border-l border-l-border/20'}"
+													{isMidnight ? 'border-l border-l-muted-foreground/40' : 'border-l border-l-border/20'}"
 											>
 												{#if isMidnight}
-													<!-- Day-start marker: dashed line + date label -->
-													{@const midnightDate = new Date(now.getTime() + tzHour.dayOffset * 86400000)}
-													<div class="absolute left-0 top-0 bottom-0 w-px bg-gradient-to-b from-muted-foreground/60 via-muted-foreground/30 to-muted-foreground/60"></div>
-													<span class="absolute -top-4 left-0 text-[9px] font-medium text-muted-foreground whitespace-nowrap bg-background px-0.5 rounded">
-														{new Intl.DateTimeFormat('en-US', { weekday: 'short', month: 'short', day: 'numeric' }).format(midnightDate)}
-													</span>
+													{@const dateLabel = getMidnightDateLabel(entry.id, tzHour.dayOffset)}
+													<div class="absolute -top-5 left-0 flex flex-col items-center text-muted-foreground whitespace-nowrap">
+														<span class="text-[8px] font-semibold leading-none">{dateLabel.weekday}</span>
+														<span class="text-[9px] font-medium leading-tight">{dateLabel.month} {dateLabel.day}</span>
+													</div>
+													<div class="absolute left-0 top-0 bottom-0 w-px bg-muted-foreground/40"></div>
 												{/if}
 												<span class="text-xs font-medium
 													{isNow
