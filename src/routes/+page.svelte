@@ -60,10 +60,10 @@
 			selectedTimezones = [{ id: localTz, label: getCityName(localTz) }];
 		}
 
-		// Update clock every 15 seconds for minute accuracy
+		// Update clock every second for seconds display
 		const interval = setInterval(() => {
 			now = new Date();
-		}, 15000);
+		}, 1000);
 
 		return () => clearInterval(interval);
 	});
@@ -218,29 +218,54 @@
 		}).format(now);
 	}
 
+	function formatTimeWithSeconds(tz: string): string {
+		return new Intl.DateTimeFormat('en-US', {
+			timeZone: tz,
+			hour: 'numeric',
+			minute: '2-digit',
+			second: '2-digit',
+			hour12: true,
+		}).format(now);
+	}
+
 	function getCityName(tzId: string): string {
 		const parts = tzId.split('/');
 		return (parts[parts.length - 1] || tzId).replace(/_/g, ' ');
 	}
 
-	// Hover: compute time at hovered x-position for a timezone
-	function getHoveredTime(tz: string, percent: number): string {
+	// Hover: compute time + date at hovered x-position for a timezone
+	function getHoveredTime(tz: string, percent: number): { time: string; date: string } {
 		const refHour = (percent / 100) * 24;
 		const offsetMinutes = getTimezoneOffset(tz, now);
 		const refOffset = getTimezoneOffset(refTzId, now);
 		const refDiff = offsetMinutes - refOffset;
 		const tzHourRaw = refHour + Math.round(refDiff / 60);
+		const dayOffset = Math.floor(tzHourRaw / 24);
 		const tzHour = ((tzHourRaw % 24) + 24) % 24;
 		const h = Math.floor(tzHour);
 		const m = Math.round((tzHour - h) * 60);
 		const displayHour = h % 12 || 12;
 		const period = h < 12 ? 'AM' : 'PM';
-		return `${displayHour}:${String(m).padStart(2, '0')} ${period}`;
+		const time = `${displayHour}:${String(m).padStart(2, '0')} ${period}`;
+
+		// Compute the date at the hovered position
+		const hoveredDate = new Date(now.getTime() + dayOffset * 86400000);
+		const date = new Intl.DateTimeFormat('en-US', {
+			timeZone: tz,
+			weekday: 'short',
+			month: 'short',
+			day: 'numeric',
+		}).format(hoveredDate);
+
+		return { time, date };
 	}
 
 	function handleCellsMouseMove(e: MouseEvent) {
-		const target = e.currentTarget as HTMLElement;
-		const rect = target.getBoundingClientRect();
+		// Find the first cells-area element to get exact bounds
+		const container = e.currentTarget as HTMLElement;
+		const cellsEl = container.querySelector('.cells-area');
+		if (!cellsEl) return;
+		const rect = cellsEl.getBoundingClientRect();
 		hoverPercent = Math.max(0, Math.min(100, ((e.clientX - rect.left) / rect.width) * 100));
 	}
 
@@ -401,7 +426,7 @@
 								</div>
 
 								<!-- Timezone label -->
-								<div class="w-38 shrink-0 relative pr-2">
+								<div class="w-38 shrink-0 relative pr-2 h-12 flex flex-col justify-center">
 									<div class="font-medium text-sm leading-tight flex items-center gap-1.5">
 										{entry.label}
 										{#if entry.id === localTz}
@@ -409,13 +434,13 @@
 										{/if}
 									</div>
 									{#if hoverPercent !== null}
-										<!-- Show hovered time -->
+										{@const hovered = getHoveredTime(entry.id, hoverPercent)}
 										<div class="text-[11px] text-foreground/80 leading-tight mt-0.5 font-medium">
-											{getHoveredTime(entry.id, hoverPercent)}
+											{hovered.time} &middot; {hovered.date}
 										</div>
 									{:else}
 										<div class="text-[11px] text-muted-foreground leading-tight mt-0.5">
-											{formatTime(entry.id)} &middot; {getTimezoneAbbr(entry.id)}
+											{formatTimeWithSeconds(entry.id)} &middot; {getTimezoneAbbr(entry.id)}
 										</div>
 									{/if}
 
@@ -443,7 +468,8 @@
 								</div>
 
 								<!-- Hour cells with daylight arc -->
-								<div class="flex-1 relative overflow-x-auto no-scrollbar">
+								<!-- svelte-ignore binding_property_non_reactive -->
+							<div class="flex-1 relative overflow-x-auto no-scrollbar cells-area">
 									<!-- Daylight arc SVG -->
 									<svg
 										class="absolute inset-0 w-full h-full pointer-events-none"
@@ -471,12 +497,14 @@
 											{@const isMidnight = actualHour === 0}
 											<div
 												class="flex-1 min-w-[2.75rem] h-10 flex items-center justify-center relative
-													{isMidnight ? 'border-l-2 border-l-border' : 'border-l border-l-border/20'}"
+													{isMidnight ? 'border-l border-l-muted-foreground/50' : 'border-l border-l-border/20'}"
 											>
 												{#if isMidnight}
+													<!-- Day-start marker: dashed line + date label -->
 													{@const midnightDate = new Date(now.getTime() + tzHour.dayOffset * 86400000)}
-													<span class="absolute -top-4 left-0 text-[9px] font-medium text-muted-foreground whitespace-nowrap">
-														{new Intl.DateTimeFormat('en-US', { weekday: 'short', day: 'numeric' }).format(midnightDate)}
+													<div class="absolute left-0 top-0 bottom-0 w-px bg-gradient-to-b from-muted-foreground/60 via-muted-foreground/30 to-muted-foreground/60"></div>
+													<span class="absolute -top-4 left-0 text-[9px] font-medium text-muted-foreground whitespace-nowrap bg-background px-0.5 rounded">
+														{new Intl.DateTimeFormat('en-US', { weekday: 'short', month: 'short', day: 'numeric' }).format(midnightDate)}
 													</span>
 												{/if}
 												<span class="text-xs font-medium
