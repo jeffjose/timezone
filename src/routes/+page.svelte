@@ -201,6 +201,44 @@
 		return ((hour + Math.round(refDiff / 60)) % 24 + 24) % 24;
 	}
 
+	// Generate SVG path for a daylight arc curve
+	// Peaks at noon (hour 13), trough at midnight (hour 1)
+	function getDaylightPath(tz: string): string {
+		const points: { x: number; y: number }[] = [];
+		const height = 40;
+		const maxArc = height * 0.65;
+
+		for (let i = 0; i <= 48; i++) {
+			const actualHour = getTzHourValue(tz, Math.floor(i / 2) % 24);
+			const fractionalHour = actualHour + (i % 2) * 0.5;
+			// Cosine: peak at hour 13, trough at hour 1
+			// cos(0) = 1, so we want radians=0 at hour 13
+			const radians = ((fractionalHour - 13) / 24) * Math.PI * 2;
+			const val = (Math.cos(radians) + 1) / 2; // 0 at trough, 1 at peak
+			const x = (i / 48) * 100;
+			const y = height - val * maxArc;
+			points.push({ x, y });
+		}
+
+		let d = `M ${points[0].x} ${points[0].y}`;
+		for (let i = 1; i < points.length; i++) {
+			const prev = points[i - 1];
+			const curr = points[i];
+			const cpx = (prev.x + curr.x) / 2;
+			d += ` C ${cpx} ${prev.y}, ${cpx} ${curr.y}, ${curr.x} ${curr.y}`;
+		}
+		d += ` L 100 ${height} L 0 ${height} Z`;
+		return d;
+	}
+
+	// Get the midnight cell index for a timezone (which of the 24 cells is midnight)
+	function getMidnightIndex(tz: string): number {
+		for (let h = 0; h < 24; h++) {
+			if (getTzHourValue(tz, h) === 0) return h;
+		}
+		return -1;
+	}
+
 	function formatTime(tz: string): string {
 		return new Intl.DateTimeFormat('en-US', {
 			timeZone: tz,
@@ -355,9 +393,6 @@
 									<div class="text-[11px] text-muted-foreground leading-tight mt-0.5">
 										{formatTime(tzId)} &middot; {getTimezoneAbbr(tzId)}
 									</div>
-									<div class="text-[11px] text-muted-foreground leading-tight">
-										{formatDate(tzId)} &middot; {formatOffset(getTimezoneOffset(tzId))}
-									</div>
 
 									<!-- Reorder buttons -->
 									<div class="absolute right-0 top-1/2 -translate-y-1/2 flex flex-col opacity-0 group-hover:opacity-100 transition-opacity">
@@ -382,44 +417,62 @@
 									</div>
 								</div>
 
-								<!-- Hour cells -->
-								<div class="flex-1 flex overflow-x-auto no-scrollbar">
-									{#each hours as hour}
-										{@const tzHour = getHourForTimezone(tzId, hour)}
-										{@const actualHour = getTzHourValue(tzId, hour)}
-										{@const tier = getDayTier(actualHour)}
-										{@const isNow = tzHour.isCurrentHour}
-										{@const isMidnight = actualHour === 0}
-										<div
-											class="flex-1 min-w-[2.75rem] h-10 flex items-center justify-center relative
-												{tier === 'night'
-													? 'bg-muted/60'
-													: tier === 'evening'
-														? 'bg-muted/30'
-														: tier === 'work'
-															? 'bg-emerald-500/8'
-															: ''}
-												{isMidnight ? 'border-l-2 border-l-muted-foreground/30' : 'border-l border-l-border/30'}"
-										>
-											<span class="text-xs font-medium
-												{isNow
-													? 'text-blue-400'
-													: tier === 'night'
-														? 'text-muted-foreground/60'
-														: tier === 'evening'
-															? 'text-muted-foreground'
-															: tier === 'work'
-																? 'text-emerald-300/90'
-																: 'text-foreground'}">
-												{tzHour.displayHour}{tzHour.period[0].toLowerCase()}
-											</span>
-											{#if tzHour.dayOffset !== 0}
-												<span class="absolute top-0 right-0.5 text-[9px] font-medium text-muted-foreground">
-													{tzHour.dayOffset > 0 ? '+1' : '-1'}
+								<!-- Hour cells with daylight arc -->
+								<div class="flex-1 relative overflow-x-auto no-scrollbar">
+									<!-- Daylight arc SVG behind cells -->
+									<svg
+										class="absolute inset-0 w-full h-full pointer-events-none"
+										viewBox="0 0 100 40"
+										preserveAspectRatio="none"
+									>
+										<path
+											d={getDaylightPath(tzId)}
+											fill="url(#daylight-{rowIndex})"
+										/>
+										<defs>
+											<linearGradient id="daylight-{rowIndex}" x1="0" y1="0" x2="0" y2="1">
+												<stop offset="0%" stop-color="rgb(250 204 21)" stop-opacity="0.12" />
+												<stop offset="100%" stop-color="rgb(250 204 21)" stop-opacity="0.02" />
+											</linearGradient>
+										</defs>
+									</svg>
+
+									<!-- Cells -->
+									<div class="flex relative z-10">
+										{#each hours as hour}
+											{@const tzHour = getHourForTimezone(tzId, hour)}
+											{@const actualHour = getTzHourValue(tzId, hour)}
+											{@const isNow = tzHour.isCurrentHour}
+											{@const isMidnight = actualHour === 0}
+											<div
+												class="flex-1 min-w-[2.75rem] h-10 flex flex-col items-center justify-center relative
+													{isMidnight ? 'border-l-2 border-l-border' : 'border-l border-l-border/20'}"
+											>
+												{#if isMidnight}
+													<!-- Date label at midnight -->
+													{@const midnightDate = new Date(now.getTime() + tzHour.dayOffset * 86400000)}
+													<span class="absolute -top-4 left-0 text-[9px] font-medium text-muted-foreground whitespace-nowrap">
+														{new Intl.DateTimeFormat('en-US', { weekday: 'short', day: 'numeric' }).format(midnightDate)}
+													</span>
+												{/if}
+												<span class="text-xs font-medium
+													{isNow
+														? 'text-blue-400'
+														: actualHour >= 9 && actualHour < 17
+															? 'text-foreground'
+															: actualHour >= 22 || actualHour < 6
+																? 'text-muted-foreground/50'
+																: 'text-muted-foreground/80'}">
+													{tzHour.displayHour}{tzHour.period[0].toLowerCase()}
 												</span>
-											{/if}
-										</div>
-									{/each}
+												{#if tzHour.dayOffset !== 0}
+													<span class="absolute top-0.5 right-0.5 text-[9px] font-medium text-muted-foreground">
+														{tzHour.dayOffset > 0 ? '+1' : '-1'}
+													</span>
+												{/if}
+											</div>
+										{/each}
+									</div>
 								</div>
 							</div>
 						{/each}
