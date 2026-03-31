@@ -301,31 +301,28 @@
 	<!-- Timezone rows -->
 	{#if selectedTimezones.length > 0}
 		<div class="flex-1 px-4 pb-8">
-			<div class="max-w-6xl mx-auto">
+			<div class="max-w-6xl mx-auto space-y-3">
 				{#each selectedTimezones as tzId, rowIndex}
-					{@const currentHourIdx = getCurrentHourIndex()}
-					<div class="group relative flex items-stretch border-b border-border/50 first:border-t">
+					<div class="group relative flex items-center gap-3">
 						<!-- Timezone label -->
-						<div class="w-36 shrink-0 flex flex-col justify-center py-3 pr-3 relative">
-							<div class="flex items-center gap-1">
-								<span class="font-medium text-sm">{getCityName(tzId)}</span>
+						<div class="w-32 shrink-0 relative">
+							<div class="font-medium text-sm leading-tight">{getCityName(tzId)}</div>
+							<div class="text-[11px] text-muted-foreground leading-tight mt-0.5">
+								{formatTime(tzId)} &middot; {getTimezoneAbbr(tzId)}
 							</div>
-							<div class="text-xs text-muted-foreground">
-								{getTimezoneAbbr(tzId)} &middot; {formatOffset(getTimezoneOffset(tzId))}
-							</div>
-							<div class="text-xs text-muted-foreground mt-0.5">
-								{formatTime(tzId)} &middot; {formatDate(tzId)}
+							<div class="text-[11px] text-muted-foreground leading-tight">
+								{formatDate(tzId)} &middot; {formatOffset(getTimezoneOffset(tzId))}
 							</div>
 
-							<!-- Reorder buttons - visible on hover -->
-							<div class="absolute right-0 top-1/2 -translate-y-1/2 flex flex-col gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+							<!-- Reorder buttons -->
+							<div class="absolute -right-1 top-1/2 -translate-y-1/2 flex flex-col opacity-0 group-hover:opacity-100 transition-opacity">
 								{#if rowIndex > 0}
 									<button
 										type="button"
 										onclick={() => moveTimezone(rowIndex, -1)}
 										class="p-0.5 rounded hover:bg-accent text-muted-foreground hover:text-foreground transition-colors"
 									>
-										<ChevronUp class="h-3.5 w-3.5" />
+										<ChevronUp class="h-3 w-3" />
 									</button>
 								{/if}
 								{#if rowIndex < selectedTimezones.length - 1}
@@ -334,14 +331,14 @@
 										onclick={() => moveTimezone(rowIndex, 1)}
 										class="p-0.5 rounded hover:bg-accent text-muted-foreground hover:text-foreground transition-colors"
 									>
-										<ChevronDown class="h-3.5 w-3.5" />
+										<ChevronDown class="h-3 w-3" />
 									</button>
 								{/if}
 							</div>
 						</div>
 
-						<!-- Hour cells -->
-						<div class="flex-1 flex overflow-x-auto no-scrollbar">
+						<!-- Hour cells - Google Calendar style -->
+						<div class="flex-1 flex overflow-x-auto no-scrollbar border-l border-border/40">
 							{#each hours as hour}
 								{@const tzHour = getHourForTimezone(tzId, hour)}
 								{@const isNight = isNightHour(
@@ -349,21 +346,22 @@
 								)}
 								{@const isNow = tzHour.isCurrentHour}
 								<div
-									class="flex-1 min-w-[3rem] flex flex-col items-center justify-center py-3 text-xs transition-colors relative
-										{isNow ? 'bg-primary/15 ring-1 ring-primary/30' : isNight ? 'bg-muted/40' : ''}"
+									class="flex-1 min-w-[2.5rem] h-8 flex items-center justify-center border-r border-border/40 relative
+										{isNow
+											? 'bg-primary/15'
+											: isNight
+												? 'bg-muted/30'
+												: ''}"
 								>
 									{#if isNow}
-										<div class="absolute top-0 left-1/2 -translate-x-1/2 w-1.5 h-1.5 rounded-full bg-primary"></div>
+										<div class="absolute left-0 top-0 bottom-0 w-0.5 bg-primary"></div>
 									{/if}
-									<span class="font-medium {isNow ? 'text-primary' : isNight ? 'text-muted-foreground' : 'text-foreground'}">
-										{tzHour.displayHour}
-									</span>
-									<span class="text-[10px] {isNow ? 'text-primary/70' : 'text-muted-foreground'}">
-										{tzHour.period}
+									<span class="text-[11px] {isNow ? 'text-primary font-semibold' : isNight ? 'text-muted-foreground/70' : 'text-foreground/80'}">
+										{tzHour.displayHour}{tzHour.period[0].toLowerCase()}
 									</span>
 									{#if tzHour.dayOffset !== 0}
-										<span class="text-[9px] text-muted-foreground/60">
-											{tzHour.dayOffset > 0 ? '+1d' : '-1d'}
+										<span class="absolute -top-0.5 right-0.5 text-[7px] {isNow ? 'text-primary/60' : 'text-muted-foreground/50'}">
+											{tzHour.dayOffset > 0 ? '+1' : '-1'}
 										</span>
 									{/if}
 								</div>
