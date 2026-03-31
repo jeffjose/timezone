@@ -7,15 +7,19 @@
 		getTimezoneAbbr,
 		getTimezoneOffset,
 		formatOffset,
-		getDayTier,
 		searchTimezones,
 		type TimezoneInfo,
 	} from '$lib/timezones';
 	import { X, ChevronUp, ChevronDown, Search, Globe } from '@lucide/svelte';
 
+	interface SelectedTz {
+		id: string;
+		label: string;
+	}
+
 	// State
 	let allTimezones: TimezoneInfo[] = $state([]);
-	let selectedTimezones: string[] = $state([]);
+	let selectedTimezones: SelectedTz[] = $state([]);
 	let query = $state('');
 	let searchResults: { tz: TimezoneInfo; displayName?: string }[] = $state([]);
 	let searchFocused = $state(false);
@@ -23,9 +27,12 @@
 	let inputEl: HTMLInputElement | undefined = $state();
 	let now = $state(new Date());
 	let dropdownEl: HTMLDivElement | undefined = $state();
+	let hoverPercent: number | null = $state(null);
 
 	// Derived
 	let showDropdown = $derived(searchFocused && query.length > 0 && searchResults.length > 0);
+	let selectedIds = $derived(selectedTimezones.map((t) => t.id));
+	let refTzId = $derived(selectedTimezones[0]?.id);
 
 	// Get the local timezone
 	const localTz = Intl.DateTimeFormat().resolvedOptions().timeZone;
@@ -39,7 +46,7 @@
 		// Read initial timezones from URL
 		const urlTz = $page.url.searchParams.get('tz');
 		if (urlTz) {
-			selectedTimezones = urlTz.split(',').filter((tz) => {
+			const entries = urlTz.split(',').filter((tz) => {
 				try {
 					Intl.DateTimeFormat(undefined, { timeZone: tz });
 					return true;
@@ -47,9 +54,10 @@
 					return false;
 				}
 			});
+			selectedTimezones = entries.map((id) => ({ id, label: getCityName(id) }));
 		}
 		if (selectedTimezones.length === 0) {
-			selectedTimezones = [localTz];
+			selectedTimezones = [{ id: localTz, label: getCityName(localTz) }];
 		}
 
 		// Update clock every 15 seconds for minute accuracy
@@ -62,12 +70,12 @@
 
 	function updateUrl() {
 		const url = new URL(window.location.href);
-		url.searchParams.set('tz', selectedTimezones.join(','));
+		url.searchParams.set('tz', selectedIds.join(','));
 		goto(url.toString(), { replaceState: true, keepFocus: true });
 	}
 
-	function addTimezone(tz: TimezoneInfo) {
-		selectedTimezones = [...selectedTimezones, tz.id];
+	function addTimezone(tz: TimezoneInfo, displayName?: string) {
+		selectedTimezones = [...selectedTimezones, { id: tz.id, label: displayName || tz.city }];
 		updateUrl();
 		query = '';
 		searchResults = [];
@@ -75,8 +83,8 @@
 		inputEl?.focus();
 	}
 
-	function removeTimezone(tzId: string) {
-		selectedTimezones = selectedTimezones.filter((t) => t !== tzId);
+	function removeTimezoneAt(index: number) {
+		selectedTimezones = selectedTimezones.filter((_, i) => i !== index);
 		updateUrl();
 	}
 
@@ -111,14 +119,15 @@
 				scrollHighlightedIntoView();
 			} else if (e.key === 'Enter' && highlightedIndex >= 0) {
 				e.preventDefault();
-				addTimezone(searchResults[highlightedIndex].tz);
+				const r = searchResults[highlightedIndex];
+				addTimezone(r.tz, r.displayName);
 			} else if (e.key === 'Escape') {
 				e.preventDefault();
 				query = '';
 				searchResults = [];
 			}
 		} else if (e.key === 'Backspace' && query === '' && selectedTimezones.length > 0) {
-			removeTimezone(selectedTimezones[selectedTimezones.length - 1]);
+			removeTimezoneAt(selectedTimezones.length - 1);
 		} else if (e.key === 'Escape') {
 			inputEl?.blur();
 		}
@@ -133,15 +142,7 @@
 
 	// Global key capture - focus search on any key
 	function handleGlobalKeydown(e: KeyboardEvent) {
-		if (
-			document.activeElement === inputEl ||
-			e.ctrlKey ||
-			e.metaKey ||
-			e.altKey
-		)
-			return;
-
-		// Only capture printable characters
+		if (document.activeElement === inputEl || e.ctrlKey || e.metaKey || e.altKey) return;
 		if (e.key.length === 1) {
 			e.preventDefault();
 			inputEl?.focus();
@@ -150,55 +151,38 @@
 		}
 	}
 
-	function getHourForTimezone(tz: string, hour: number): { displayHour: number; period: string; isCurrentHour: boolean; dayOffset: number; minuteProgress: number } {
+	function getHourForTimezone(tz: string, hour: number): { displayHour: number; period: string; isCurrentHour: boolean; dayOffset: number } {
 		const offsetMinutes = getTimezoneOffset(tz, now);
-
-		// Get current hour in the first timezone (reference)
-		const refOffset = getTimezoneOffset(selectedTimezones[0], now);
+		const refOffset = getTimezoneOffset(refTzId, now);
 		const refDiff = offsetMinutes - refOffset;
 
 		const tzHour = ((hour + Math.round(refDiff / 60)) % 24 + 24) % 24;
 		const dayOffset = Math.floor((hour + Math.round(refDiff / 60)) / 24);
 
-		// Check if this is current hour and get minute progress
 		const nowInTz = new Date(now.toLocaleString('en-US', { timeZone: tz }));
 		const currentTzHour = nowInTz.getHours();
 		const isCurrentHour = tzHour === currentTzHour;
-		const minuteProgress = isCurrentHour ? nowInTz.getMinutes() / 60 : 0;
 
 		const displayHour = tzHour % 12 || 12;
 		const period = tzHour < 12 ? 'AM' : 'PM';
 
-		return { displayHour, period, isCurrentHour, dayOffset, minuteProgress };
+		return { displayHour, period, isCurrentHour, dayOffset };
 	}
 
-	function getCurrentHourIndex(): number {
-		const refTz = selectedTimezones[0];
-		if (!refTz) return 0;
-		const nowInRef = new Date(now.toLocaleString('en-US', { timeZone: refTz }));
-		return nowInRef.getHours();
-	}
-
-	// Compute the blue line's position as a percentage across the 24-cell grid
-	// Based on the reference (first) timezone
 	function getNowLinePercent(): number {
-		const refTz = selectedTimezones[0];
-		if (!refTz) return 0;
-		const nowInRef = new Date(now.toLocaleString('en-US', { timeZone: refTz }));
-		const h = nowInRef.getHours();
-		const m = nowInRef.getMinutes();
-		return ((h + m / 60) / 24) * 100;
+		if (!refTzId) return 0;
+		const nowInRef = new Date(now.toLocaleString('en-US', { timeZone: refTzId }));
+		return ((nowInRef.getHours() + nowInRef.getMinutes() / 60) / 24) * 100;
 	}
 
 	function getTzHourValue(tz: string, hour: number): number {
 		const offsetMinutes = getTimezoneOffset(tz, now);
-		const refOffset = getTimezoneOffset(selectedTimezones[0], now);
+		const refOffset = getTimezoneOffset(refTzId, now);
 		const refDiff = offsetMinutes - refOffset;
 		return ((hour + Math.round(refDiff / 60)) % 24 + 24) % 24;
 	}
 
-	// Generate SVG path for a daylight arc curve
-	// Peaks at noon (hour 13), trough at midnight (hour 1)
+	// SVG daylight arc: peaks at ~1PM, trough at ~1AM
 	function getDaylightPath(tz: string): string {
 		const points: { x: number; y: number }[] = [];
 		const height = 40;
@@ -207,10 +191,8 @@
 		for (let i = 0; i <= 48; i++) {
 			const actualHour = getTzHourValue(tz, Math.floor(i / 2) % 24);
 			const fractionalHour = actualHour + (i % 2) * 0.5;
-			// Cosine: peak at hour 13, trough at hour 1
-			// cos(0) = 1, so we want radians=0 at hour 13
 			const radians = ((fractionalHour - 13) / 24) * Math.PI * 2;
-			const val = (Math.cos(radians) + 1) / 2; // 0 at trough, 1 at peak
+			const val = (Math.cos(radians) + 1) / 2;
 			const x = (i / 48) * 100;
 			const y = height - val * maxArc;
 			points.push({ x, y });
@@ -227,14 +209,6 @@
 		return d;
 	}
 
-	// Get the midnight cell index for a timezone (which of the 24 cells is midnight)
-	function getMidnightIndex(tz: string): number {
-		for (let h = 0; h < 24; h++) {
-			if (getTzHourValue(tz, h) === 0) return h;
-		}
-		return -1;
-	}
-
 	function formatTime(tz: string): string {
 		return new Intl.DateTimeFormat('en-US', {
 			timeZone: tz,
@@ -244,18 +218,34 @@
 		}).format(now);
 	}
 
-	function formatDate(tz: string): string {
-		return new Intl.DateTimeFormat('en-US', {
-			timeZone: tz,
-			weekday: 'short',
-			month: 'short',
-			day: 'numeric',
-		}).format(now);
-	}
-
 	function getCityName(tzId: string): string {
 		const parts = tzId.split('/');
 		return (parts[parts.length - 1] || tzId).replace(/_/g, ' ');
+	}
+
+	// Hover: compute time at hovered x-position for a timezone
+	function getHoveredTime(tz: string, percent: number): string {
+		const refHour = (percent / 100) * 24;
+		const offsetMinutes = getTimezoneOffset(tz, now);
+		const refOffset = getTimezoneOffset(refTzId, now);
+		const refDiff = offsetMinutes - refOffset;
+		const tzHourRaw = refHour + Math.round(refDiff / 60);
+		const tzHour = ((tzHourRaw % 24) + 24) % 24;
+		const h = Math.floor(tzHour);
+		const m = Math.round((tzHour - h) * 60);
+		const displayHour = h % 12 || 12;
+		const period = h < 12 ? 'AM' : 'PM';
+		return `${displayHour}:${String(m).padStart(2, '0')} ${period}`;
+	}
+
+	function handleCellsMouseMove(e: MouseEvent) {
+		const target = e.currentTarget as HTMLElement;
+		const rect = target.getBoundingClientRect();
+		hoverPercent = Math.max(0, Math.min(100, ((e.clientX - rect.left) / rect.width) * 100));
+	}
+
+	function handleCellsMouseLeave() {
+		hoverPercent = null;
 	}
 
 	// Click outside to close dropdown
@@ -288,14 +278,14 @@
 			>
 				<Search class="h-4 w-4 text-muted-foreground shrink-0" />
 
-				{#each selectedTimezones as tzId}
+				{#each selectedTimezones as entry, i}
 					<span
 						class="inline-flex items-center gap-1 rounded-md bg-secondary px-2 py-0.5 text-sm text-secondary-foreground"
 					>
-						{getCityName(tzId)}
+						{entry.label}
 						<button
 							type="button"
-							onclick={() => removeTimezone(tzId)}
+							onclick={() => removeTimezoneAt(i)}
 							class="hover:text-foreground text-muted-foreground transition-colors"
 						>
 							<X class="h-3 w-3" />
@@ -325,7 +315,7 @@
 						<button
 							type="button"
 							data-index={i}
-							onclick={() => addTimezone(result.tz)}
+							onclick={() => addTimezone(result.tz, result.displayName)}
 							onmouseenter={() => (highlightedIndex = i)}
 							class="w-full flex items-center justify-between px-3 py-2 text-sm transition-colors {highlightedIndex === i
 								? 'bg-accent text-accent-foreground'
@@ -353,13 +343,10 @@
 	{#if selectedTimezones.length > 0}
 		<div class="flex-1 px-4 pb-8">
 			<div class="max-w-6xl mx-auto">
-				<!-- Grid container with the global blue now-line -->
+				<!-- Blue dot above the grid -->
 				<div class="flex">
-					<!-- Label spacer -->
-					<div class="w-36 shrink-0"></div>
-					<!-- Now-line container (positioned over the cells area) -->
+					<div class="w-44 shrink-0"></div>
 					<div class="flex-1 relative">
-						<!-- Blue dot at top -->
 						<div
 							class="absolute -top-3 w-[10px] h-[10px] rounded-full bg-blue-500 z-20 -translate-x-1/2"
 							style="left: {getNowLinePercent()}%"
@@ -367,10 +354,16 @@
 					</div>
 				</div>
 
-				<div class="relative">
-					<!-- Continuous blue now-line spanning all rows -->
-					<div class="absolute top-0 bottom-0 flex" style="left: 0; right: 0;">
-						<div class="w-36 shrink-0"></div>
+				<!-- Grid with lines overlay -->
+				<div
+					class="relative"
+					onmousemove={handleCellsMouseMove}
+					onmouseleave={handleCellsMouseLeave}
+					role="presentation"
+				>
+					<!-- Blue now-line (continuous across all rows) -->
+					<div class="absolute top-0 bottom-0 flex pointer-events-none" style="left: 0; right: 0;">
+						<div class="w-44 shrink-0"></div>
 						<div class="flex-1 relative">
 							<div
 								class="absolute top-0 bottom-0 w-[2px] bg-blue-500 z-20 -translate-x-1/2"
@@ -379,21 +372,52 @@
 						</div>
 					</div>
 
+					<!-- Gray hover-line (continuous across all rows) -->
+					{#if hoverPercent !== null}
+						<div class="absolute top-0 bottom-0 flex pointer-events-none" style="left: 0; right: 0;">
+							<div class="w-44 shrink-0"></div>
+							<div class="flex-1 relative">
+								<div
+									class="absolute top-0 bottom-0 w-[1px] bg-foreground/30 z-30 -translate-x-1/2"
+									style="left: {hoverPercent}%"
+								></div>
+							</div>
+						</div>
+					{/if}
+
 					<!-- Rows -->
 					<div class="space-y-1">
-						{#each selectedTimezones as tzId, rowIndex}
-							<div class="group relative flex items-center gap-3">
-								<!-- Timezone label -->
-								<div class="w-36 shrink-0 relative pr-2">
-									<div class="font-medium text-sm leading-tight flex items-center gap-1.5">
-									{getCityName(tzId)}
-									{#if tzId === localTz}
-										<span class="text-[9px] font-medium text-blue-400 bg-blue-400/10 px-1 py-px rounded">HOME</span>
-									{/if}
+						{#each selectedTimezones as entry, rowIndex}
+							<div class="group relative flex items-center gap-0">
+								<!-- Remove button -->
+								<div class="w-6 shrink-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+									<button
+										type="button"
+										onclick={() => removeTimezoneAt(rowIndex)}
+										class="p-0.5 rounded hover:bg-destructive/20 text-muted-foreground hover:text-destructive transition-colors"
+									>
+										<X class="h-3.5 w-3.5" />
+									</button>
 								</div>
-									<div class="text-[11px] text-muted-foreground leading-tight mt-0.5">
-										{formatTime(tzId)} &middot; {getTimezoneAbbr(tzId)}
+
+								<!-- Timezone label -->
+								<div class="w-38 shrink-0 relative pr-2">
+									<div class="font-medium text-sm leading-tight flex items-center gap-1.5">
+										{entry.label}
+										{#if entry.id === localTz}
+											<span class="text-[9px] font-medium text-blue-400 bg-blue-400/10 px-1 py-px rounded">HOME</span>
+										{/if}
 									</div>
+									{#if hoverPercent !== null}
+										<!-- Show hovered time -->
+										<div class="text-[11px] text-foreground/80 leading-tight mt-0.5 font-medium">
+											{getHoveredTime(entry.id, hoverPercent)}
+										</div>
+									{:else}
+										<div class="text-[11px] text-muted-foreground leading-tight mt-0.5">
+											{formatTime(entry.id)} &middot; {getTimezoneAbbr(entry.id)}
+										</div>
+									{/if}
 
 									<!-- Reorder buttons -->
 									<div class="absolute right-0 top-1/2 -translate-y-1/2 flex flex-col opacity-0 group-hover:opacity-100 transition-opacity">
@@ -420,14 +444,14 @@
 
 								<!-- Hour cells with daylight arc -->
 								<div class="flex-1 relative overflow-x-auto no-scrollbar">
-									<!-- Daylight arc SVG behind cells -->
+									<!-- Daylight arc SVG -->
 									<svg
 										class="absolute inset-0 w-full h-full pointer-events-none"
 										viewBox="0 0 100 40"
 										preserveAspectRatio="none"
 									>
 										<path
-											d={getDaylightPath(tzId)}
+											d={getDaylightPath(entry.id)}
 											fill="url(#daylight-{rowIndex})"
 										/>
 										<defs>
@@ -441,16 +465,15 @@
 									<!-- Cells -->
 									<div class="flex relative z-10">
 										{#each hours as hour}
-											{@const tzHour = getHourForTimezone(tzId, hour)}
-											{@const actualHour = getTzHourValue(tzId, hour)}
+											{@const tzHour = getHourForTimezone(entry.id, hour)}
+											{@const actualHour = getTzHourValue(entry.id, hour)}
 											{@const isNow = tzHour.isCurrentHour}
 											{@const isMidnight = actualHour === 0}
 											<div
-												class="flex-1 min-w-[2.75rem] h-10 flex flex-col items-center justify-center relative
+												class="flex-1 min-w-[2.75rem] h-10 flex items-center justify-center relative
 													{isMidnight ? 'border-l-2 border-l-border' : 'border-l border-l-border/20'}"
 											>
 												{#if isMidnight}
-													<!-- Date label at midnight -->
 													{@const midnightDate = new Date(now.getTime() + tzHour.dayOffset * 86400000)}
 													<span class="absolute -top-4 left-0 text-[9px] font-medium text-muted-foreground whitespace-nowrap">
 														{new Intl.DateTimeFormat('en-US', { weekday: 'short', day: 'numeric' }).format(midnightDate)}
