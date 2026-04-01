@@ -644,7 +644,10 @@
 				{/each}
 			</div>
 		</div>
-	{:else}
+	{/if}
+
+	<!-- Real content: rendered but invisible until ready so .cells-area can be measured -->
+	<div class="{ready ? '' : 'invisible absolute'}">
 	<!-- Header -->
 	<div class="flex flex-col items-center pt-8 pb-6 px-4">
 		<div class="flex items-center gap-3 mb-6">
@@ -979,5 +982,5 @@
 			<p>Type to search and add timezones</p>
 		</div>
 	{/if}
-	{/if}
+	</div>
 </div>
