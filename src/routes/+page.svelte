@@ -288,6 +288,23 @@
 		return (((Math.floor(totalMinutes / 60)) % 24) + 24) % 24;
 	}
 
+	// Get the fractional hour offset for a timezone (0-59 minutes)
+	// Used to shift cells horizontally so they align temporally
+	function getMinuteOffset(tz: string): number {
+		const base = getBaseDate();
+		const offsetMinutes = getTimezoneOffset(tz, base);
+		const refOffset = getTimezoneOffset(refTzId, base);
+		const diffMinutes = offsetMinutes - refOffset;
+		return ((diffMinutes % 60) + 60) % 60;
+	}
+
+	// Convert minute offset to percentage of one cell width
+	function getOffsetPercent(tz: string): number {
+		const mins = getMinuteOffset(tz);
+		// One cell = 100/24% of container. Offset = (mins/60) of one cell
+		return (mins / 60) * (100 / 24);
+	}
+
 	function getDaylightPath(tz: string): string {
 		const points: { x: number; y: number }[] = [];
 		const height = 40;
@@ -667,27 +684,29 @@
 								</div>
 
 								<!-- Hour cells with daylight arc -->
-								<div class="flex-1 relative overflow-x-auto no-scrollbar cells-area">
-									<!-- Daylight arc SVG -->
-									<svg
-										class="absolute inset-0 w-full h-full pointer-events-none"
-										viewBox="0 0 100 40"
-										preserveAspectRatio="none"
-									>
-										<path
-											d={getDaylightPath(entry.id)}
-											fill="url(#daylight-{rowIndex})"
-										/>
-										<defs>
-											<linearGradient id="daylight-{rowIndex}" x1="0" y1="0" x2="0" y2="1">
-												<stop offset="0%" stop-color="white" stop-opacity="0.08" />
-												<stop offset="100%" stop-color="white" stop-opacity="0.01" />
-											</linearGradient>
-										</defs>
-									</svg>
+								<div class="flex-1 relative overflow-hidden no-scrollbar cells-area">
+									<!-- Inner container shifted by minute offset -->
+									<div class="relative" style="margin-left: {getOffsetPercent(entry.id)}%">
+										<!-- Daylight arc SVG -->
+										<svg
+											class="absolute inset-0 w-full h-full pointer-events-none"
+											viewBox="0 0 100 40"
+											preserveAspectRatio="none"
+										>
+											<path
+												d={getDaylightPath(entry.id)}
+												fill="url(#daylight-{rowIndex})"
+											/>
+											<defs>
+												<linearGradient id="daylight-{rowIndex}" x1="0" y1="0" x2="0" y2="1">
+													<stop offset="0%" stop-color="white" stop-opacity="0.08" />
+													<stop offset="100%" stop-color="white" stop-opacity="0.01" />
+												</linearGradient>
+											</defs>
+										</svg>
 
-									<!-- Cells -->
-									<div class="flex relative z-10">
+										<!-- Cells -->
+										<div class="flex relative z-10">
 										{#each hours as hour}
 											{@const tzHour = getHourForTimezone(entry.id, hour)}
 											{@const actualHour = getTzHourValue(entry.id, hour)}
@@ -713,7 +732,7 @@
 															: actualHour >= 22 || actualHour < 6
 																? 'text-muted-foreground'
 																: 'text-foreground/70'}">
-													{tzHour.displayHour}{#if tzHour.minutes > 0}:{String(tzHour.minutes).padStart(2, '0')}{/if}{tzHour.period[0].toLowerCase()}
+													{tzHour.displayHour}{tzHour.period[0].toLowerCase()}
 												</span>
 												{#if tzHour.dayOffset !== 0}
 													<span class="absolute top-0.5 right-0.5 text-[9px] font-medium text-muted-foreground">
@@ -724,6 +743,7 @@
 										{/each}
 									</div>
 								</div>
+							</div>
 							</div>
 						{/each}
 					</div>
