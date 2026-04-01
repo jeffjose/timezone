@@ -12,7 +12,7 @@
 		type TimezoneInfo,
 		type SearchResult,
 	} from '$lib/timezones';
-	import { X, ChevronUp, ChevronDown, Search, Globe, ChevronLeft, ChevronRight, CalendarDays } from '@lucide/svelte';
+	import { X, ChevronUp, ChevronDown, Search, Globe, ChevronLeft, ChevronRight, CalendarDays, Plus } from '@lucide/svelte';
 
 	interface SelectedTz {
 		id: string;
@@ -1077,9 +1077,9 @@ function handleMarkerLineClick(e: MouseEvent, markerId: number) {
 
 						<!-- Hover indicator: + at bottom edge (same level as blue dot) -->
 						{#if createStripHoverPct !== null && !isCreatingInterval}
-							<div class="absolute bottom-0 -translate-x-1/2 translate-y-1/2 pointer-events-none z-10 flex items-center justify-center w-4 h-4 rounded-full bg-muted-foreground/10"
+							<div class="absolute bottom-0 -translate-x-1/2 translate-y-1/2 pointer-events-none z-10 flex items-center justify-center w-5 h-5 rounded-full bg-muted-foreground/20 text-muted-foreground"
 								style="left: {createStripHoverPct}%">
-								<span class="text-[10px] text-muted-foreground/60 leading-none font-medium">+</span>
+								<Plus class="h-3.5 w-3.5" strokeWidth={2.5} />
 							</div>
 						{/if}
 						<!-- Existing marker labels (draggable) -->
