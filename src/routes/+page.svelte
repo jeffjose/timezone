@@ -206,6 +206,24 @@
 		isDraggingNav = false;
 	}
 
+	const STORAGE_KEY = 'timezone-selected';
+
+	function saveToLocalStorage() {
+		try {
+			localStorage.setItem(STORAGE_KEY, JSON.stringify(selectedTimezones));
+		} catch {}
+	}
+
+	function loadFromLocalStorage(): SelectedTz[] | null {
+		try {
+			const raw = localStorage.getItem(STORAGE_KEY);
+			if (!raw) return null;
+			const parsed = JSON.parse(raw);
+			if (!Array.isArray(parsed) || parsed.length === 0) return null;
+			return parsed.filter((e: any) => e.id && e.label);
+		} catch { return null; }
+	}
+
 	onMount(async () => {
 		allTimezones = getAllTimezones();
 
@@ -220,10 +238,14 @@
 				}
 			});
 			selectedTimezones = entries.map((id) => ({ id, label: getCityName(id) }));
+		} else {
+			const saved = loadFromLocalStorage();
+			if (saved) selectedTimezones = saved;
 		}
 		if (selectedTimezones.length === 0) {
 			selectedTimezones = [{ id: localTz, label: getCityName(localTz) }];
 		}
+		updateUrl();
 
 		// Center on current UTC time
 		centerHour = now.getUTCHours() + now.getUTCMinutes() / 60;
@@ -260,6 +282,7 @@
 
 	function addTimezone(tz: TimezoneInfo, displayName?: string) {
 		selectedTimezones = [...selectedTimezones, { id: tz.id, label: displayName || tz.city }];
+		saveToLocalStorage();
 		updateUrl();
 		query = '';
 		searchResults = [];
@@ -269,6 +292,7 @@
 
 	function removeTimezoneAt(index: number) {
 		selectedTimezones = selectedTimezones.filter((_, i) => i !== index);
+		saveToLocalStorage();
 		updateUrl();
 	}
 
@@ -278,6 +302,7 @@
 		const copy = [...selectedTimezones];
 		[copy[index], copy[newIndex]] = [copy[newIndex], copy[index]];
 		selectedTimezones = copy;
+		saveToLocalStorage();
 		updateUrl();
 	}
 
