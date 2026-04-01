@@ -1154,7 +1154,7 @@ function handleMarkerLineClick(e: MouseEvent, markerId: number) {
 					style="cursor: crosshair"
 				>
 					<div class="w-44 shrink-0 max-sm:hidden"></div>
-					<div class="flex-1 relative h-6 overflow-x-hidden marker-create-strip">
+					<div class="flex-1 relative h-6 marker-create-strip" style="overflow-x: clip">
 						<!-- Blue dot (now indicator) -->
 						{#if nowLineVisible}
 							<div class="absolute bottom-0 w-[10px] h-[10px] rounded-full bg-blue-500 z-20 -translate-x-1/2 translate-y-1/2 pointer-events-none max-sm:hidden"
