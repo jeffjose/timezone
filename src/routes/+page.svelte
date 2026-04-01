@@ -19,9 +19,33 @@
 		label: string;
 	}
 
-	// State
-	let allTimezones: TimezoneInfo[] = $state([]);
-	let selectedTimezones: SelectedTz[] = $state([]);
+	const localTzInit = Intl.DateTimeFormat().resolvedOptions().timeZone;
+	const nowInit = new Date();
+	const initCenterHour = nowInit.getUTCHours() + nowInit.getUTCMinutes() / 60;
+
+	// Parse timezones from URL on server+client (no onMount needed)
+	function getInitialTimezones(): SelectedTz[] {
+		const urlTz = $page.url.searchParams.get('tz');
+		if (urlTz) {
+			const entries = urlTz.split(',').filter((tz) => {
+				try {
+					Intl.DateTimeFormat(undefined, { timeZone: tz });
+					return true;
+				} catch {
+					return false;
+				}
+			});
+			if (entries.length > 0) {
+				return entries.map((id) => ({ id, label: getCityName(id) }));
+			}
+		}
+		// Fallback to local timezone for SSR (localStorage checked in onMount)
+		return [{ id: localTzInit, label: getCityName(localTzInit) }];
+	}
+
+	// State — initialized eagerly so SSR renders full UI
+	let allTimezones: TimezoneInfo[] = $state(getAllTimezones());
+	let selectedTimezones: SelectedTz[] = $state(getInitialTimezones());
 	let query = $state('');
 	let searchResults: SearchResult[] = $state([]);
 	let remoteSearchTimeout: ReturnType<typeof setTimeout> | null = null;
@@ -29,14 +53,14 @@
 	let searchFocused = $state(false);
 	let highlightedIndex = $state(-1);
 	let inputEl: HTMLInputElement | undefined = $state();
-	let now = $state(new Date());
+	let now = $state(nowInit);
 	let dropdownEl: HTMLDivElement | undefined = $state();
 	let hoverPercent: number | null = $state(null);
 	// Carousel state
 	// centerHour = UTC fractional hours since UTC midnight today
 	// All internal positioning uses UTC. Each timezone row shifts its strip
 	// by its UTC offset so local hour boundaries align correctly.
-	let centerHour = $state(0);
+	let centerHour = $state(initCenterHour);
 	let isDragging = $state(false);
 	let isDraggingNav = $state(false);
 	let dragStartX = $state(0);
@@ -54,7 +78,7 @@
 	// The range of UTC hours to render: 264 hours (11 days)
 	const BUFFER = 120;
 	const TOTAL_CELLS = 24 + 2 * BUFFER; // 264
-	let renderAnchor = $state(0);
+	let renderAnchor = $state(Math.floor(initCenterHour));
 	let renderStart = $derived(renderAnchor - BUFFER - 12);
 	let renderHours = $derived(Array.from({ length: TOTAL_CELLS }, (_, i) => renderStart + i));
 
@@ -133,7 +157,7 @@
 		return navContainerWidth / 2 - centerPillPos;
 	})());
 
-	const localTz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+	const localTz = localTzInit;
 
 	function isSameDay(a: Date, b: Date): boolean {
 		return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
@@ -226,31 +250,14 @@
 	}
 
 	onMount(async () => {
-		allTimezones = getAllTimezones();
-
-		const urlTz = $page.url.searchParams.get('tz');
-		if (urlTz) {
-			const entries = urlTz.split(',').filter((tz) => {
-				try {
-					Intl.DateTimeFormat(undefined, { timeZone: tz });
-					return true;
-				} catch {
-					return false;
-				}
-			});
-			selectedTimezones = entries.map((id) => ({ id, label: getCityName(id) }));
-		} else {
+		// If no URL params, check localStorage (client-only)
+		if (!$page.url.searchParams.get('tz')) {
 			const saved = loadFromLocalStorage();
-			if (saved) selectedTimezones = saved;
-		}
-		if (selectedTimezones.length === 0) {
-			selectedTimezones = [{ id: localTz, label: getCityName(localTz) }];
+			if (saved) {
+				selectedTimezones = saved;
+			}
 		}
 		updateUrl();
-
-		// Center on current UTC time
-		centerHour = now.getUTCHours() + now.getUTCMinutes() / 60;
-		renderAnchor = Math.floor(centerHour);
 
 		// Measure containers after DOM renders
 		let ro: ResizeObserver | undefined;
