@@ -8,7 +8,9 @@
 		getTimezoneOffset,
 		formatOffset,
 		searchTimezones,
+		searchTimezonesRemote,
 		type TimezoneInfo,
+		type SearchResult,
 	} from '$lib/timezones';
 	import { X, ChevronUp, ChevronDown, Search, Globe, ChevronLeft, ChevronRight, CalendarDays, Dot } from '@lucide/svelte';
 	import * as Popover from '$lib/components/ui/popover';
@@ -24,7 +26,8 @@
 	let allTimezones: TimezoneInfo[] = $state([]);
 	let selectedTimezones: SelectedTz[] = $state([]);
 	let query = $state('');
-	let searchResults: { tz: TimezoneInfo; displayName?: string }[] = $state([]);
+	let searchResults: SearchResult[] = $state([]);
+	let remoteSearchTimeout: ReturnType<typeof setTimeout> | null = null;
 	let searchFocused = $state(false);
 	let highlightedIndex = $state(-1);
 	let inputEl: HTMLInputElement | undefined = $state();
@@ -155,9 +158,34 @@
 	}
 
 	function handleSearch() {
+		if (remoteSearchTimeout) clearTimeout(remoteSearchTimeout);
+
 		if (query.trim().length > 0) {
-			searchResults = searchTimezones(query, allTimezones);
-			highlightedIndex = searchResults.length > 0 ? 0 : -1;
+			// Instant local search
+			const localResults = searchTimezones(query, allTimezones);
+			searchResults = localResults;
+			highlightedIndex = localResults.length > 0 ? 0 : -1;
+
+			// Debounced remote fallback if local results are sparse
+			if (localResults.length < 3 && query.length >= 2) {
+				remoteSearchTimeout = setTimeout(async () => {
+					const remoteResults = await searchTimezonesRemote(query, allTimezones);
+					if (remoteResults.length > 0) {
+						// Merge: local first, then remote (deduped)
+						const seen = new Set(localResults.map((r) => r.tz.id + (r.displayName || '')));
+						const merged = [...localResults];
+						for (const r of remoteResults) {
+							const key = r.tz.id + (r.displayName || '');
+							if (!seen.has(key)) {
+								seen.add(key);
+								merged.push(r);
+							}
+						}
+						searchResults = merged.slice(0, 20);
+						if (highlightedIndex < 0 && searchResults.length > 0) highlightedIndex = 0;
+					}
+				}, 300);
+			}
 		} else {
 			searchResults = [];
 			highlightedIndex = -1;
@@ -437,7 +465,7 @@
 									{/if}
 								</span>
 								<span class="text-muted-foreground text-xs">
-									{getTimezoneAbbr(result.tz.id)} {formatOffset(getTimezoneOffset(result.tz.id))}
+									{formatTimeWithSeconds(result.tz.id)} &middot; {getTimezoneAbbr(result.tz.id)}
 								</span>
 							</button>
 						{/each}
