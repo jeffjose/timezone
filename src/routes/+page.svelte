@@ -534,7 +534,25 @@
 		}
 	}
 
-	function getMidnightDateLabel(tz: string, dayOffset: number): { weekday: string; month: string; day: number } {
+	// Day colors — blue for today, cycling non-blue colors for other days.
+	const TODAY_COLOR = { bg: 'rgba(59, 130, 246, 0.08)', border: 'rgba(59, 130, 246, 0.5)', text: 'rgb(59, 130, 246)' };
+	const OTHER_DAY_COLORS = [
+		{ bg: 'rgba(168, 85, 247, 0.08)', border: 'rgba(168, 85, 247, 0.5)', text: 'rgb(168, 85, 247)' },    // purple-500
+		{ bg: 'rgba(20, 184, 166, 0.08)', border: 'rgba(20, 184, 166, 0.5)', text: 'rgb(20, 184, 166)' },    // teal-500
+		{ bg: 'rgba(245, 158, 11, 0.08)', border: 'rgba(245, 158, 11, 0.5)', text: 'rgb(245, 158, 11)' },    // amber-500
+		{ bg: 'rgba(239, 68, 68, 0.08)', border: 'rgba(239, 68, 68, 0.5)', text: 'rgb(239, 68, 68)' },       // red-500
+		{ bg: 'rgba(34, 197, 94, 0.08)', border: 'rgba(34, 197, 94, 0.5)', text: 'rgb(34, 197, 94)' },       // green-500
+		{ bg: 'rgba(236, 72, 153, 0.08)', border: 'rgba(236, 72, 153, 0.5)', text: 'rgb(236, 72, 153)' },    // pink-500
+	];
+
+	function getDayColor(dayOffset: number) {
+		if (dayOffset === 0) return TODAY_COLOR;
+		// Offset by -1 so dayOffset 1 and -1 get different colors
+		const idx = dayOffset > 0 ? dayOffset - 1 : OTHER_DAY_COLORS.length + dayOffset;
+		return OTHER_DAY_COLORS[((idx % OTHER_DAY_COLORS.length) + OTHER_DAY_COLORS.length) % OTHER_DAY_COLORS.length];
+	}
+
+	function getMidnightDateLabel(dayOffset: number): { weekday: string; month: string; day: number } {
 		const todayDate = new Date();
 		todayDate.setHours(0, 0, 0, 0);
 		const d = new Date(todayDate.getTime() + dayOffset * 86400000);
@@ -874,32 +892,35 @@
 											{@const actualHour = getTzHourValue(entry.id, hour)}
 											{@const isNow = hour === (cachedNowCell.get(entry.id) ?? -1)}
 											{@const isMidnight = actualHour === 0}
+											{@const dayColor = getDayColor(tzHour.dayOffset)}
 											<div
 												class="h-10 flex items-center justify-center relative shrink-0 z-10
-													{isMidnight ? 'border-l-2 border-l-amber-400/70' : 'border-l border-l-border/20'}
-													{actualHour >= 22 || actualHour < 6 ? 'bg-black/15' : ''}"
-												style="width: {cellWidth}px"
+													{isMidnight ? 'border-l-2' : 'border-l border-l-border/20'}"
+												style="width: {cellWidth}px; background: {dayColor.bg}; {isMidnight ? `border-left-color: ${dayColor.border}` : ''}"
 											>
 												{#if isMidnight}
-													{@const dateLabel = getMidnightDateLabel(entry.id, tzHour.dayOffset)}
-													<div class="absolute -top-6 left-1/2 -translate-x-1/2 flex items-center gap-1 text-amber-400 whitespace-nowrap">
-														<span class="text-[9px] font-bold leading-none">{dateLabel.weekday}</span>
-														<span class="text-[8px] font-medium leading-none text-amber-400/70">{dateLabel.month} {dateLabel.day}</span>
+													{@const dateLabel = getMidnightDateLabel(tzHour.dayOffset)}
+													<div class="flex flex-col items-center rounded overflow-hidden shadow-sm" style="width: 28px; border: 1px solid {dayColor.border}">
+														<div class="w-full text-center leading-none py-px" style="background: {dayColor.border}; color: white">
+															<span class="text-[7px] font-bold tracking-wide">{dateLabel.month}</span>
+														</div>
+														<div class="w-full text-center leading-none py-0.5 bg-background">
+															<span class="text-[11px] font-bold" style="color: {dayColor.text}">{dateLabel.day}</span>
+														</div>
 													</div>
-												{/if}
-												<span class="text-xs font-medium
-													{isNow
-														? 'text-blue-400'
-														: isMidnight
-															? 'text-amber-400/90'
+												{:else}
+													<span class="text-xs font-medium
+														{isNow
+															? 'text-blue-400'
 															: actualHour >= 9 && actualHour < 17
 																? 'text-foreground'
 																: actualHour >= 22 || actualHour < 6
 																	? 'text-muted-foreground/60'
 																	: 'text-foreground/70'}">
-													{tzHour.displayHour}{tzHour.period[0].toLowerCase()}
-												</span>
-												{#if tzHour.dayOffset !== 0}
+														{tzHour.displayHour}{tzHour.period[0].toLowerCase()}
+													</span>
+												{/if}
+												{#if tzHour.dayOffset !== 0 && !isMidnight}
 													<span class="absolute top-0.5 right-0.5 text-[9px] font-medium text-muted-foreground/60">
 														{tzHour.dayOffset > 0 ? `+${tzHour.dayOffset}` : tzHour.dayOffset}
 													</span>
