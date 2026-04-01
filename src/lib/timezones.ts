@@ -315,35 +315,33 @@ export function searchTimezones(query: string, allTimezones: TimezoneInfo[]): Se
 	return results.slice(0, 20);
 }
 
-// GeoNames API fallback for cities not in our local data
-let geoNamesController: AbortController | null = null;
+// Remote search via /api/search (Nominatim + timeapi.io, cached by CF)
+let remoteController: AbortController | null = null;
 
 export async function searchTimezonesRemote(query: string, allTimezones: TimezoneInfo[]): Promise<SearchResult[]> {
 	if (!query.trim() || query.length < 2) return [];
 
-	// Abort any previous request
-	if (geoNamesController) geoNamesController.abort();
-	geoNamesController = new AbortController();
+	if (remoteController) remoteController.abort();
+	remoteController = new AbortController();
 
 	try {
-		const url = `/api/search?q=${encodeURIComponent(query)}`;
-		const res = await fetch(url, { signal: geoNamesController.signal });
+		const res = await fetch(`/api/search?q=${encodeURIComponent(query)}`, {
+			signal: remoteController.signal,
+		});
 		if (!res.ok) return [];
 
 		const data = await res.json();
-		if (!data.geonames) return [];
+		if (!data.results || data.results.length === 0) return [];
 
 		const results: SearchResult[] = [];
 		const seen = new Set<string>();
 
-		for (const place of data.geonames) {
-			const tzId = place.timezone?.timeZoneId;
+		for (const place of data.results) {
+			const tzId = place.timezone;
 			if (!tzId) continue;
 
-			// Find or create a TimezoneInfo for this tz
 			let tzInfo = allTimezones.find((t) => t.id === tzId);
 			if (!tzInfo) {
-				// Timezone exists in IANA but maybe not in our list
 				try {
 					Intl.DateTimeFormat(undefined, { timeZone: tzId });
 					tzInfo = {
@@ -361,8 +359,7 @@ export async function searchTimezonesRemote(query: string, allTimezones: Timezon
 			if (seen.has(key)) continue;
 			seen.add(key);
 
-			const country = place.countryName || '';
-			const displayName = place.name + (country ? `, ${country}` : '');
+			const displayName = place.name + (place.country ? `, ${place.country}` : '');
 			results.push({ tz: tzInfo, displayName });
 		}
 
