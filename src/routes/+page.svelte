@@ -1056,19 +1056,6 @@ function handleMarkerLineClick(e: MouseEvent, markerId: number) {
 	{#if selectedTimezones.length > 0}
 		<div class="flex-1 px-4 max-sm:px-2 pb-8">
 			<div class="max-w-6xl mx-auto">
-				<!-- Blue dot above the grid -->
-				{#if nowLineVisible}
-					<div class="flex max-sm:hidden">
-						<div class="w-44 shrink-0"></div>
-						<div class="flex-1 relative">
-							<div
-								class="absolute -top-3 w-[10px] h-[10px] rounded-full bg-blue-500 z-20 -translate-x-1/2"
-								style="left: {nowLinePercent}%"
-							></div>
-						</div>
-					</div>
-				{/if}
-
 				<!-- Marker creation strip + labels above the grid -->
 				<!-- svelte-ignore a11y_no_static_element_interactions -->
 				<div class="flex"
@@ -1080,6 +1067,12 @@ function handleMarkerLineClick(e: MouseEvent, markerId: number) {
 				>
 					<div class="w-44 shrink-0 max-sm:hidden"></div>
 					<div class="flex-1 relative h-6 marker-create-strip">
+						<!-- Blue dot (now indicator) -->
+						{#if nowLineVisible}
+							<div class="absolute bottom-0 w-[10px] h-[10px] rounded-full bg-blue-500 z-20 -translate-x-1/2 translate-y-1/2 pointer-events-none max-sm:hidden"
+								style="left: {nowLinePercent}%"></div>
+						{/if}
+
 						<!-- Hover indicator (gray line + plus) -->
 						{#if createStripHoverPct !== null && !isCreatingInterval}
 							<div class="absolute top-0 bottom-0 -translate-x-1/2 pointer-events-none z-10 flex flex-col items-center"
