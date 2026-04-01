@@ -19,6 +19,16 @@
 		label: string;
 	}
 
+	interface Marker {
+		id: number;
+		utcHour: number; // fractional UTC hour (same coordinate system as centerHour)
+		label: string;
+		color: string;
+	}
+
+	const MARKER_COLORS = ['#f97316', '#a855f7', '#22c55e', '#ec4899', '#06b6d4'];
+	let nextMarkerId = 0;
+
 	const localTzInit = Intl.DateTimeFormat().resolvedOptions().timeZone;
 	const nowInit = new Date();
 	const initCenterHour = nowInit.getUTCHours() + nowInit.getUTCMinutes() / 60;
@@ -26,7 +36,7 @@
 	// Parse timezones from URL on server+client (no onMount needed)
 	function getInitialTimezones(): SelectedTz[] {
 		const urlTz = $page.url.searchParams.get('tz');
-		console.log('[tz] getInitialTimezones urlTz:', urlTz);
+
 		if (urlTz) {
 			const entries = urlTz.split(',').filter((tz) => {
 				try {
@@ -42,6 +52,17 @@
 		}
 		// Fallback to local timezone for SSR (localStorage checked in onMount)
 		return [{ id: localTzInit, label: getCityName(localTzInit) }];
+	}
+
+	function getInitialMarkers(): Marker[] {
+		const mParam = $page.url.searchParams.get('m');
+		if (!mParam) return [];
+		return mParam.split(',').map((s, i) => {
+			const utcHour = parseFloat(s);
+			if (isNaN(utcHour)) return null;
+			const id = nextMarkerId++;
+			return { id, utcHour, label: '', color: MARKER_COLORS[i % MARKER_COLORS.length] };
+		}).filter((m): m is Marker => m !== null).slice(0, 5);
 	}
 
 	// State — initialized eagerly so SSR renders full UI
@@ -70,6 +91,9 @@
 	let navContainerWidth = $state(1); // measured on mount
 	let ready = $state(false);
 	let isMobile = $state(false);
+	let markers: Marker[] = $state(getInitialMarkers());
+	let selectedMarkerId: number | null = $state(null);
+	let dragDidMove = $state(false); // distinguish click from drag
 
 	// Derived
 	let showDropdown = $derived(searchFocused && query.length > 0 && (searchResults.length > 0 || isSearchingRemote));
@@ -205,6 +229,7 @@
 	function handleDragStart(e: MouseEvent) {
 		if ((e.target as HTMLElement).closest('button')) return;
 		isDragging = true;
+		dragDidMove = false;
 		dragStartX = e.clientX;
 		dragStartCenter = centerHour;
 	}
@@ -220,10 +245,11 @@
 	function handleDragMove(e: MouseEvent) {
 		if (isDragging) {
 			const dx = e.clientX - dragStartX;
+			if (Math.abs(dx) > 3) dragDidMove = true;
 			centerHour = dragStartCenter - dx / cellWidth;
 		} else if (isDraggingNav) {
 			const dx = e.clientX - dragStartX;
-			// 1 pill = 24 hours, so scale by pillWidth/24 = cellWidth equivalent for nav
+			if (Math.abs(dx) > 3) dragDidMove = true;
 			centerHour = dragStartCenter - (dx / navPillWidth) * 24;
 		}
 	}
@@ -237,8 +263,11 @@
 	function handleTouchStart(e: TouchEvent) {
 		if ((e.target as HTMLElement).closest('button')) return;
 		isDragging = true;
+		dragDidMove = false;
 		dragStartX = e.touches[0].clientX;
 		dragStartCenter = centerHour;
+		lastTouchX = e.touches[0].clientX;
+		lastTouchTarget = e.target;
 	}
 
 	function handleNavTouchStart(e: TouchEvent) {
@@ -252,15 +281,33 @@
 		if (isDragging) {
 			e.preventDefault();
 			const dx = e.touches[0].clientX - dragStartX;
+			if (Math.abs(dx) > 3) dragDidMove = true;
 			centerHour = dragStartCenter - dx / cellWidth;
 		} else if (isDraggingNav) {
 			e.preventDefault();
 			const dx = e.touches[0].clientX - dragStartX;
+			if (Math.abs(dx) > 3) dragDidMove = true;
 			centerHour = dragStartCenter - (dx / navPillWidth) * 24;
 		}
 	}
 
-	function handleTouchEnd() {
+	let lastTouchX = $state(0);
+	let lastTouchTarget: EventTarget | null = $state(null);
+
+	function handleTouchEnd(e: TouchEvent) {
+		if (!dragDidMove && isDragging && lastTouchTarget) {
+			// Tap (not drag) on grid — place marker
+			const container = (lastTouchTarget as HTMLElement).closest('[data-grid]');
+			if (container) {
+				const cellsEl = container.querySelector('.cells-area');
+				if (cellsEl) {
+					const rect = cellsEl.getBoundingClientRect();
+					const percent = Math.max(0, Math.min(100, ((lastTouchX - rect.left) / rect.width) * 100));
+					const utcHour = screenPercentToUtcHour(percent);
+					addMarker(utcHour);
+				}
+			}
+		}
 		isDragging = false;
 		isDraggingNav = false;
 	}
@@ -284,16 +331,16 @@
 	}
 
 	onMount(async () => {
-		console.log('[tz] onMount start');
+
 		// If no URL params, check localStorage (client-only)
 		if (!$page.url.searchParams.get('tz')) {
 			const saved = loadFromLocalStorage();
-			console.log('[tz] no URL params, localStorage:', saved);
+
 			if (saved) {
 				selectedTimezones = saved;
 			}
 		} else {
-			console.log('[tz] URL params found:', $page.url.searchParams.get('tz'));
+
 		}
 		updateUrl();
 
@@ -303,13 +350,13 @@
 		const measure = () => {
 			const cellsEl = document.querySelector('.cells-area');
 			const navEl = document.querySelector('.nav-carousel-area');
-			console.log('[tz] measure: cellsEl=', cellsEl?.clientWidth, 'navEl=', navEl?.clientWidth);
+
 			if (cellsEl) containerWidth = cellsEl.clientWidth;
 			if (navEl) navContainerWidth = navEl.clientWidth;
 			isMobile = window.innerWidth < 640;
 		};
 		measure();
-		console.log('[tz] containerWidth after measure:', containerWidth, 'setting ready=true');
+
 		ready = true;
 		ro = new ResizeObserver(measure);
 		const cellsEl = document.querySelector('.cells-area');
@@ -335,6 +382,12 @@
 	function updateUrl() {
 		const url = new URL(window.location.href);
 		url.searchParams.set('tz', selectedIds.join(','));
+		if (markers.length > 0) {
+			// Store as comma-separated UTC hours rounded to 2 decimals
+			url.searchParams.set('m', markers.map(m => m.utcHour.toFixed(2)).join(','));
+		} else {
+			url.searchParams.delete('m');
+		}
 		goto(url.toString(), { replaceState: true, keepFocus: true });
 	}
 
@@ -439,6 +492,19 @@
 		if (e.key === '/') {
 			e.preventDefault();
 			inputEl?.focus();
+			return;
+		}
+		// Place marker at hover position
+		if (e.key === 'm' && hoverPercent !== null) {
+			e.preventDefault();
+			const utcHour = screenPercentToUtcHour(hoverPercent);
+			addMarker(utcHour);
+			return;
+		}
+		// Delete selected marker
+		if ((e.key === 'Escape' || e.key === 'Delete' || e.key === 'Backspace') && selectedMarkerId !== null) {
+			e.preventDefault();
+			removeMarker(selectedMarkerId);
 			return;
 		}
 		if (e.key.length === 1) {
@@ -637,6 +703,79 @@
 		return { weekday, month, day };
 	}
 
+	// --- Markers ---
+
+	// Convert a UTC fractional hour to screen percent (same math as now-line)
+	function markerScreenPercent(utcHour: number): number {
+		const posInStrip = (utcHour - renderStart) * cellWidth;
+		const screenX = posInStrip + stripTranslateX;
+		return (screenX / containerWidth) * 100;
+	}
+
+	// Derived: marker positions as screen percents + visibility
+	let markerPositions = $derived(
+		markers.map(m => {
+			const pct = markerScreenPercent(m.utcHour);
+			return { ...m, percent: pct, visible: pct >= -1 && pct <= 101 };
+		})
+	);
+
+	// Convert screen percent (within cells-area) to UTC fractional hour
+	function screenPercentToUtcHour(percent: number): number {
+		const screenX = (percent / 100) * containerWidth;
+		return (screenX - stripTranslateX) / cellWidth + renderStart;
+	}
+
+	// Format a marker's time in a given timezone
+	function formatMarkerTime(utcHour: number, tz: string): string {
+		const offsetMinutes = getTimezoneOffset(tz, offsetBase);
+		const localTotalMinutes = utcHour * 60 + offsetMinutes;
+		const minuteInDay = ((localTotalMinutes % (24 * 60)) + 24 * 60) % (24 * 60);
+		const h = Math.floor(minuteInDay / 60);
+		const m = Math.round(minuteInDay % 60);
+		const displayHour = h % 12 || 12;
+		const period = h < 12 ? 'AM' : 'PM';
+		return `${displayHour}:${String(m).padStart(2, '0')} ${period}`;
+	}
+
+	function addMarker(utcHour: number) {
+		if (markers.length >= 5) return; // max 5 markers
+		const color = MARKER_COLORS[markers.length % MARKER_COLORS.length];
+		const id = nextMarkerId++;
+		markers = [...markers, { id, utcHour, label: '', color }];
+		selectedMarkerId = id;
+		updateUrl();
+	}
+
+	function removeMarker(id: number) {
+		markers = markers.filter(m => m.id !== id);
+		if (selectedMarkerId === id) selectedMarkerId = null;
+		updateUrl();
+	}
+
+	function handleGridClick(e: MouseEvent) {
+		if (dragDidMove) return; // was a drag, not a click
+		if ((e.target as HTMLElement).closest('button')) return;
+		if ((e.target as HTMLElement).closest('.marker-line')) return;
+
+		const container = e.currentTarget as HTMLElement;
+		const cellsEl = container.querySelector('.cells-area');
+		if (!cellsEl) return;
+		const rect = cellsEl.getBoundingClientRect();
+		const percent = Math.max(0, Math.min(100, ((e.clientX - rect.left) / rect.width) * 100));
+		const utcHour = screenPercentToUtcHour(percent);
+		addMarker(utcHour);
+	}
+
+	function handleMarkerLineClick(e: MouseEvent, markerId: number) {
+		e.stopPropagation();
+		if (selectedMarkerId === markerId) {
+			selectedMarkerId = null;
+		} else {
+			selectedMarkerId = markerId;
+		}
+	}
+
 	function formatNavDay(d: Date): { dayNum: string; topLabel: string; isWeekend: boolean; isToday: boolean } {
 		const dayNum = String(d.getDate());
 		const dow = d.getDay();
@@ -827,12 +966,31 @@
 					</div>
 				{/if}
 
+				<!-- Marker labels above the grid (desktop) -->
+				{#each markerPositions as marker}
+					{#if marker.visible}
+						<div class="flex max-sm:hidden">
+							<div class="w-44 shrink-0"></div>
+							<div class="flex-1 relative">
+								<div
+									class="absolute -top-4 -translate-x-1/2 text-[10px] font-medium whitespace-nowrap"
+									style="left: {marker.percent}%; color: {marker.color}"
+								>
+									{#if refTzId}{formatMarkerTime(marker.utcHour, refTzId)}{/if}
+								</div>
+							</div>
+						</div>
+					{/if}
+				{/each}
+
 				<!-- Grid -->
 				<div
 					class="relative overflow-hidden"
+					data-grid
 					onmousemove={handleCellsMouseMove}
 					onmouseleave={handleCellsMouseLeave}
 					onmousedown={handleDragStart}
+					onclick={handleGridClick}
 					ontouchstart={handleTouchStart}
 					role="presentation"
 					style="cursor: {isDragging ? 'grabbing' : 'grab'}"
@@ -862,6 +1020,26 @@
 							</div>
 						</div>
 					{/if}
+
+					<!-- Marker lines (desktop — span all rows) -->
+					{#each markerPositions as marker}
+						{#if marker.visible}
+							<div class="absolute top-0 bottom-0 flex max-sm:hidden" style="left: 0; right: 0; z-index: 25;">
+								<div class="w-44 shrink-0"></div>
+								<div class="flex-1 relative">
+									<!-- svelte-ignore a11y_click_events_have_key_events -->
+									<!-- svelte-ignore a11y_no_static_element_interactions -->
+									<div
+										class="marker-line absolute top-0 bottom-0 -translate-x-1/2 cursor-pointer"
+										style="left: {marker.percent}%; width: 8px;"
+										onclick={(e) => handleMarkerLineClick(e, marker.id)}
+									>
+										<div class="absolute left-1/2 -translate-x-1/2 top-0 bottom-0 w-[2px]" style="background: {marker.color}"></div>
+									</div>
+								</div>
+							</div>
+						{/if}
+					{/each}
 
 					<!-- Rows -->
 					<div class="space-y-1 max-sm:space-y-3">
@@ -932,6 +1110,13 @@
 										<div class="hidden max-sm:block absolute top-0 bottom-0 w-[2px] bg-blue-500 z-20 -translate-x-1/2 pointer-events-none"
 											style="left: {nowLinePercent}%"></div>
 									{/if}
+									<!-- Mobile marker lines (per-row) -->
+									{#each markerPositions as marker}
+										{#if marker.visible}
+											<div class="hidden max-sm:block absolute top-0 bottom-0 w-[2px] z-25 -translate-x-1/2 pointer-events-none"
+												style="left: {marker.percent}%; background: {marker.color}"></div>
+										{/if}
+									{/each}
 									<div
 										class="relative flex will-change-transform {smoothPan ? 'transition-transform duration-300 ease-in-out' : ''}"
 										style="transform: translateX({stripTranslateX + (cachedFractionalOffsets.get(entry.id) ?? 0) * cellWidth}px)"
@@ -999,6 +1184,36 @@
 						{/each}
 					</div>
 				</div>
+				<!-- Marker list -->
+				{#if markers.length > 0}
+					<div class="mt-3 flex flex-wrap gap-2">
+						{#each markers as marker}
+							<!-- svelte-ignore a11y_no_static_element_interactions -->
+							<div
+								class="inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-xs font-medium transition-colors cursor-pointer
+									{selectedMarkerId === marker.id ? 'ring-1 ring-foreground/30' : ''}"
+								style="background: {marker.color}15; color: {marker.color}"
+								onclick={() => selectedMarkerId = selectedMarkerId === marker.id ? null : marker.id}
+								onkeydown={(e) => { if (e.key === 'Enter') selectedMarkerId = selectedMarkerId === marker.id ? null : marker.id; }}
+								role="button"
+								tabindex="0"
+							>
+								<span class="w-2 h-2 rounded-full" style="background: {marker.color}"></span>
+								{#if refTzId}
+									{formatMarkerTime(marker.utcHour, refTzId)}
+									<span class="text-muted-foreground">{getCityName(refTzId)}</span>
+								{/if}
+								<button
+									type="button"
+									onclick={(e) => { e.stopPropagation(); removeMarker(marker.id); }}
+									class="ml-0.5 hover:opacity-100 opacity-60 transition-opacity"
+								>
+									<X class="h-3 w-3" />
+								</button>
+							</div>
+						{/each}
+					</div>
+				{/if}
 			</div>
 		</div>
 	{:else}
