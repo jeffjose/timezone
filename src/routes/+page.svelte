@@ -107,6 +107,9 @@
 	let createIntervalStart: number | null = $state(null); // UTC hour
 	let createIntervalCurrentPct = $state(0); // screen percent for preview
 	let createStripHoverPct: number | null = $state(null); // hover position
+	// Interval edge editing
+	let editingMarkerId: number | null = $state(null); // marker in edge-edit mode
+	let draggingEdge: 'start' | 'end' | null = $state(null); // which edge is being dragged
 
 	// Derived
 	let showDropdown = $derived(searchFocused && query.length > 0 && (searchResults.length > 0 || isSearchingRemote));
@@ -522,6 +525,12 @@
 			addMarker(utcHour);
 			return;
 		}
+		// Exit edit mode
+		if (e.key === 'Escape' && editingMarkerId !== null) {
+			e.preventDefault();
+			editingMarkerId = null;
+			return;
+		}
 		// Delete selected marker
 		if ((e.key === 'Escape' || e.key === 'Delete' || e.key === 'Backspace') && selectedMarkerId !== null) {
 			e.preventDefault();
@@ -694,6 +703,10 @@
 		if (!target.closest('.search-container')) {
 			searchFocused = false;
 		}
+		// Exit marker edit mode when clicking outside marker elements
+		if (editingMarkerId !== null && !target.closest('.marker-label') && !target.closest('.marker-line')) {
+			editingMarkerId = null;
+		}
 	}
 
 	// Day colors — blue for today, cycling non-blue colors for other days.
@@ -800,24 +813,57 @@ function handleMarkerLineClick(e: MouseEvent, markerId: number) {
 		const dx = e.clientX - markerDragStartX;
 		const dHours = dx / cellWidth;
 		const newUtcHour = markerDragStartUtcHour + dHours;
-		markers = markers.map(m => {
-			if (m.id !== draggingMarkerId) return m;
-			// If interval, shift both ends by same amount
-			const delta = newUtcHour - m.utcHour;
-			return {
-				...m,
-				utcHour: newUtcHour,
-				utcHourEnd: m.utcHourEnd !== null ? m.utcHourEnd + delta : null,
-			};
-		});
+
+		if (draggingEdge) {
+			// Edge drag: only move one end
+			markers = markers.map(m => {
+				if (m.id !== draggingMarkerId) return m;
+				if (draggingEdge === 'start') {
+					return { ...m, utcHour: newUtcHour };
+				} else {
+					return { ...m, utcHourEnd: newUtcHour };
+				}
+			});
+		} else {
+			// Whole-interval drag
+			markers = markers.map(m => {
+				if (m.id !== draggingMarkerId) return m;
+				const delta = newUtcHour - m.utcHour;
+				return {
+					...m,
+					utcHour: newUtcHour,
+					utcHourEnd: m.utcHourEnd !== null ? m.utcHourEnd + delta : null,
+				};
+			});
+		}
 	}
 
 	function handleMarkerDragEnd() {
 		if (isDraggingMarker) {
 			isDraggingMarker = false;
 			draggingMarkerId = null;
+			draggingEdge = null;
 			updateUrl();
 		}
+	}
+
+	function handleMarkerDblClick(e: MouseEvent, markerId: number) {
+		e.stopPropagation();
+		e.preventDefault();
+		const marker = markers.find(m => m.id === markerId);
+		if (!marker || marker.utcHourEnd === null) return;
+		editingMarkerId = editingMarkerId === markerId ? null : markerId;
+	}
+
+	function handleEdgeDragStart(e: MouseEvent, markerId: number, edge: 'start' | 'end') {
+		e.stopPropagation();
+		e.preventDefault();
+		isDraggingMarker = true;
+		draggingMarkerId = markerId;
+		draggingEdge = edge;
+		markerDragStartX = e.clientX;
+		const marker = markers.find(m => m.id === markerId);
+		markerDragStartUtcHour = edge === 'start' ? (marker?.utcHour ?? 0) : (marker?.utcHourEnd ?? 0);
 	}
 
 	// --- Create strip (area above grid for creating markers/intervals) ---
@@ -1084,11 +1130,14 @@ function handleMarkerLineClick(e: MouseEvent, markerId: number) {
 						<!-- Existing marker labels (draggable) -->
 						{#each markerPositions as marker}
 							{#if marker.visible}
+								{@const isEditing = editingMarkerId === marker.id && marker.isInterval}
 								<!-- svelte-ignore a11y_no_static_element_interactions -->
 								<div
-									class="marker-label absolute top-0 -translate-x-1/2 text-[10px] font-medium whitespace-nowrap cursor-grab active:cursor-grabbing select-none px-1 py-0.5 rounded z-30"
-									style="left: {marker.isInterval ? (marker.leftPct + marker.rightPct) / 2 : marker.percent}%; color: {marker.color}; background: {marker.color}15;"
-									onmousedown={(e) => { e.stopPropagation(); handleMarkerDragStart(e, marker.id); }}
+									class="marker-label absolute top-0 -translate-x-1/2 text-[10px] font-medium whitespace-nowrap select-none px-1 py-0.5 rounded z-30
+										{isEditing ? 'ring-1 ring-offset-1' : 'cursor-grab active:cursor-grabbing'}"
+									style="left: {marker.isInterval ? (marker.leftPct + marker.rightPct) / 2 : marker.percent}%; color: {marker.color}; background: {marker.color}15; {isEditing ? `ring-color: ${marker.color}` : ''}"
+									onmousedown={(e) => { if (!isEditing) { e.stopPropagation(); handleMarkerDragStart(e, marker.id); } }}
+									ondblclick={(e) => handleMarkerDblClick(e, marker.id)}
 								>
 									{#if refTzId}
 										{#if marker.isInterval}
@@ -1098,6 +1147,32 @@ function handleMarkerLineClick(e: MouseEvent, markerId: number) {
 										{/if}
 									{/if}
 								</div>
+
+								<!-- Edge handles when in edit mode -->
+								{#if isEditing}
+									<!-- Left edge handle -->
+									<!-- svelte-ignore a11y_no_static_element_interactions -->
+									<div
+										class="absolute top-0 bottom-0 -translate-x-1/2 z-40 cursor-ew-resize flex items-center"
+										style="left: {marker.leftPct}%"
+										onmousedown={(e) => { e.stopPropagation(); handleEdgeDragStart(e, marker.id, marker.utcHour <= (marker.utcHourEnd ?? 0) ? 'start' : 'end'); }}
+									>
+										<div class="w-3 h-5 rounded-sm flex items-center justify-center" style="background: {marker.color}">
+											<div class="w-[2px] h-3 bg-white/60 rounded-full"></div>
+										</div>
+									</div>
+									<!-- Right edge handle -->
+									<!-- svelte-ignore a11y_no_static_element_interactions -->
+									<div
+										class="absolute top-0 bottom-0 -translate-x-1/2 z-40 cursor-ew-resize flex items-center"
+										style="left: {marker.rightPct}%"
+										onmousedown={(e) => { e.stopPropagation(); handleEdgeDragStart(e, marker.id, marker.utcHour <= (marker.utcHourEnd ?? 0) ? 'end' : 'start'); }}
+									>
+										<div class="w-3 h-5 rounded-sm flex items-center justify-center" style="background: {marker.color}">
+											<div class="w-[2px] h-3 bg-white/60 rounded-full"></div>
+										</div>
+									</div>
+								{/if}
 							{/if}
 						{/each}
 
@@ -1159,20 +1234,36 @@ function handleMarkerLineClick(e: MouseEvent, markerId: number) {
 								<div class="w-44 shrink-0"></div>
 								<div class="flex-1 relative">
 									{#if marker.isInterval}
+										{@const isEditing = editingMarkerId === marker.id}
 										<!-- Interval shading -->
 										<!-- svelte-ignore a11y_click_events_have_key_events -->
 										<!-- svelte-ignore a11y_no_static_element_interactions -->
 										<div
-											class="marker-line absolute top-0 bottom-0 cursor-pointer"
+											class="marker-line absolute top-0 bottom-0 {isEditing ? '' : 'cursor-pointer'}"
 											style="left: {marker.leftPct}%; width: {marker.rightPct - marker.leftPct}%; background: {marker.color}20;"
 											onclick={(e) => handleMarkerLineClick(e, marker.id)}
-											onmousedown={(e) => handleMarkerDragStart(e, marker.id)}
+											onmousedown={(e) => { if (!isEditing) handleMarkerDragStart(e, marker.id); }}
 										>
 											<!-- Left edge -->
 											<div class="absolute left-0 top-0 bottom-0 w-[2px]" style="background: {marker.color}"></div>
 											<!-- Right edge -->
 											<div class="absolute right-0 top-0 bottom-0 w-[2px]" style="background: {marker.color}"></div>
 										</div>
+										<!-- Edge drag handles in grid (edit mode) -->
+										{#if isEditing}
+											<!-- svelte-ignore a11y_no_static_element_interactions -->
+											<div
+												class="absolute top-0 bottom-0 -translate-x-1/2 z-30 cursor-ew-resize"
+												style="left: {marker.leftPct}%; width: 12px;"
+												onmousedown={(e) => { e.stopPropagation(); handleEdgeDragStart(e, marker.id, marker.utcHour <= (marker.utcHourEnd ?? 0) ? 'start' : 'end'); }}
+											></div>
+											<!-- svelte-ignore a11y_no_static_element_interactions -->
+											<div
+												class="absolute top-0 bottom-0 -translate-x-1/2 z-30 cursor-ew-resize"
+												style="left: {marker.rightPct}%; width: 12px;"
+												onmousedown={(e) => { e.stopPropagation(); handleEdgeDragStart(e, marker.id, marker.utcHour <= (marker.utcHourEnd ?? 0) ? 'end' : 'start'); }}
+											></div>
+										{/if}
 									{:else}
 										<!-- Point marker line -->
 										<!-- svelte-ignore a11y_click_events_have_key_events -->
