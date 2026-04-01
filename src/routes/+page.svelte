@@ -1319,43 +1319,22 @@ function handleMarkerLineClick(e: MouseEvent, markerId: number) {
 										<!-- svelte-ignore a11y_click_events_have_key_events -->
 										<!-- svelte-ignore a11y_no_static_element_interactions -->
 										<div
-											class="marker-line absolute top-0 bottom-0 {isEditing ? '' : 'cursor-pointer'}"
+											class="marker-line absolute top-0 bottom-0 pointer-events-none"
 											style="left: {marker.leftPct}%; width: {marker.rightPct - marker.leftPct}%; background: {marker.color}20;"
-											onclick={(e) => handleMarkerLineClick(e, marker.id)}
-											onmousedown={(e) => { if (!isEditing) handleMarkerDragStart(e, marker.id); }}
 										>
 											<!-- Left edge -->
 											<div class="absolute left-0 top-0 bottom-0 w-[2px]" style="background: {marker.color}"></div>
 											<!-- Right edge -->
 											<div class="absolute right-0 top-0 bottom-0 w-[2px]" style="background: {marker.color}"></div>
 										</div>
-										<!-- Edge drag handles in grid (edit mode) -->
-										{#if isEditing}
-											<!-- svelte-ignore a11y_no_static_element_interactions -->
-											<div
-												class="absolute top-0 bottom-0 -translate-x-1/2 z-30 cursor-ew-resize"
-												style="left: {marker.leftPct}%; width: 12px;"
-												onmousedown={(e) => { e.stopPropagation(); handleEdgeDragStart(e, marker.id, marker.utcHour <= (marker.utcHourEnd ?? 0) ? 'start' : 'end'); }}
-											></div>
-											<!-- svelte-ignore a11y_no_static_element_interactions -->
-											<div
-												class="absolute top-0 bottom-0 -translate-x-1/2 z-30 cursor-ew-resize"
-												style="left: {marker.rightPct}%; width: 12px;"
-												onmousedown={(e) => { e.stopPropagation(); handleEdgeDragStart(e, marker.id, marker.utcHour <= (marker.utcHourEnd ?? 0) ? 'end' : 'start'); }}
-											></div>
-										{/if}
 									{:else}
 										<!-- Point marker line -->
 										<!-- svelte-ignore a11y_click_events_have_key_events -->
 										<!-- svelte-ignore a11y_no_static_element_interactions -->
 										<div
-											class="marker-line absolute top-0 bottom-0 -translate-x-1/2 cursor-pointer"
-											style="left: {marker.percent}%; width: 8px;"
-											onclick={(e) => handleMarkerLineClick(e, marker.id)}
-											onmousedown={(e) => handleMarkerDragStart(e, marker.id)}
-										>
-											<div class="absolute left-1/2 -translate-x-1/2 top-0 bottom-0 w-[2px]" style="background: {marker.color}"></div>
-										</div>
+											class="absolute top-0 bottom-0 -translate-x-1/2 pointer-events-none"
+											style="left: {marker.percent}%; width: 2px; background: {marker.color}"
+										></div>
 									{/if}
 								</div>
 							</div>
