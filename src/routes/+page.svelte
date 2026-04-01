@@ -26,6 +26,7 @@
 	// Parse timezones from URL on server+client (no onMount needed)
 	function getInitialTimezones(): SelectedTz[] {
 		const urlTz = $page.url.searchParams.get('tz');
+		console.log('[tz] getInitialTimezones urlTz:', urlTz);
 		if (urlTz) {
 			const entries = urlTz.split(',').filter((tz) => {
 				try {
@@ -68,6 +69,7 @@
 	let containerWidth = $state(1); // measured on mount
 	let navContainerWidth = $state(1); // measured on mount
 	let ready = $state(false);
+	let isMobile = $state(false);
 
 	// Derived
 	let showDropdown = $derived(searchFocused && query.length > 0 && (searchResults.length > 0 || isSearchingRemote));
@@ -129,7 +131,7 @@
 	const NAV_DAYS_COUNT = 61;
 	const NAV_DAYS_HALF = 30;
 	let navAnchorDay = $state(0); // day offset from today that the nav is centered on
-	let navPillWidth = $derived(navContainerWidth / 7); // 7 pills visible
+	let navPillWidth = $derived(navContainerWidth / (isMobile ? 5 : 7));
 	let navDays = $derived(Array.from({ length: NAV_DAYS_COUNT }, (_, i) => {
 		const d = new Date();
 		d.setHours(0, 0, 0, 0);
@@ -231,6 +233,38 @@
 		isDraggingNav = false;
 	}
 
+	// Touch handlers for mobile pan
+	function handleTouchStart(e: TouchEvent) {
+		if ((e.target as HTMLElement).closest('button')) return;
+		isDragging = true;
+		dragStartX = e.touches[0].clientX;
+		dragStartCenter = centerHour;
+	}
+
+	function handleNavTouchStart(e: TouchEvent) {
+		if ((e.target as HTMLElement).closest('button')) return;
+		isDraggingNav = true;
+		dragStartX = e.touches[0].clientX;
+		dragStartCenter = centerHour;
+	}
+
+	function handleTouchMove(e: TouchEvent) {
+		if (isDragging) {
+			e.preventDefault();
+			const dx = e.touches[0].clientX - dragStartX;
+			centerHour = dragStartCenter - dx / cellWidth;
+		} else if (isDraggingNav) {
+			e.preventDefault();
+			const dx = e.touches[0].clientX - dragStartX;
+			centerHour = dragStartCenter - (dx / navPillWidth) * 24;
+		}
+	}
+
+	function handleTouchEnd() {
+		isDragging = false;
+		isDraggingNav = false;
+	}
+
 	const STORAGE_KEY = 'timezone-selected';
 
 	function saveToLocalStorage() {
@@ -250,12 +284,16 @@
 	}
 
 	onMount(async () => {
+		console.log('[tz] onMount start');
 		// If no URL params, check localStorage (client-only)
 		if (!$page.url.searchParams.get('tz')) {
 			const saved = loadFromLocalStorage();
+			console.log('[tz] no URL params, localStorage:', saved);
 			if (saved) {
 				selectedTimezones = saved;
 			}
+		} else {
+			console.log('[tz] URL params found:', $page.url.searchParams.get('tz'));
 		}
 		updateUrl();
 
@@ -264,11 +302,14 @@
 		await tick();
 		const measure = () => {
 			const cellsEl = document.querySelector('.cells-area');
-			if (cellsEl) containerWidth = cellsEl.clientWidth;
 			const navEl = document.querySelector('.nav-carousel-area');
+			console.log('[tz] measure: cellsEl=', cellsEl?.clientWidth, 'navEl=', navEl?.clientWidth);
+			if (cellsEl) containerWidth = cellsEl.clientWidth;
 			if (navEl) navContainerWidth = navEl.clientWidth;
+			isMobile = window.innerWidth < 640;
 		};
 		measure();
+		console.log('[tz] containerWidth after measure:', containerWidth, 'setting ready=true');
 		ready = true;
 		ro = new ResizeObserver(measure);
 		const cellsEl = document.querySelector('.cells-area');
@@ -276,11 +317,19 @@
 		const navEl = document.querySelector('.nav-carousel-area');
 		if (navEl) ro.observe(navEl);
 
+		window.addEventListener('resize', measure);
+		window.addEventListener('touchmove', handleTouchMove, { passive: false });
+
 		const interval = setInterval(() => {
 			now = new Date();
 		}, 1000);
 
-		return () => { clearInterval(interval); ro?.disconnect(); };
+		return () => {
+			clearInterval(interval);
+			ro?.disconnect();
+			window.removeEventListener('resize', measure);
+			window.removeEventListener('touchmove', handleTouchMove);
+		};
 	});
 
 	function updateUrl() {
@@ -606,60 +655,19 @@
 	onclick={handleClickOutside}
 	onmousemove={handleDragMove}
 	onmouseup={handleDragEnd}
+	ontouchend={handleTouchEnd}
 />
 
 <svelte:head>
 	<title>Timezone</title>
 </svelte:head>
 
-<div class="min-h-screen bg-background text-foreground flex flex-col select-none">
-	{#if !ready}
-		<!-- Skeleton loading state -->
-		<div class="flex flex-col items-center pt-8 pb-6 px-4">
-			<!-- Header skeleton -->
-			<div class="flex items-center gap-3 mb-6">
-				<div class="h-6 w-6 rounded bg-muted-foreground/10 animate-pulse"></div>
-				<div class="h-6 w-32 rounded bg-muted-foreground/10 animate-pulse"></div>
-			</div>
-
-			<!-- Search box skeleton -->
-			<div class="w-full max-w-4xl flex flex-col gap-3">
-				<div class="h-10 rounded-lg bg-muted-foreground/10 animate-pulse"></div>
-
-				<!-- Date navigator skeleton -->
-				<div class="flex items-center gap-1 justify-center">
-					<div class="h-8 w-8 rounded-md bg-muted-foreground/10 animate-pulse"></div>
-					<div class="h-8 w-8 rounded-md bg-muted-foreground/10 animate-pulse"></div>
-					<div class="h-10 w-64 rounded-md bg-muted-foreground/10 animate-pulse"></div>
-					<div class="h-8 w-8 rounded-md bg-muted-foreground/10 animate-pulse"></div>
-				</div>
-			</div>
-		</div>
-
-		<!-- Grid skeleton -->
-		<div class="flex-1 px-4 pb-8">
-			<div class="max-w-6xl mx-auto space-y-1">
-				{#each Array(3) as _}
-					<div class="flex items-center gap-0">
-						<div class="w-6 shrink-0"></div>
-						<div class="w-38 shrink-0 pr-2">
-							<div class="h-4 w-24 rounded bg-muted-foreground/10 animate-pulse mb-1"></div>
-							<div class="h-3 w-32 rounded bg-muted-foreground/10 animate-pulse"></div>
-						</div>
-						<div class="flex-1 h-10 rounded bg-muted-foreground/10 animate-pulse"></div>
-					</div>
-				{/each}
-			</div>
-		</div>
-	{/if}
-
-	<!-- Real content: rendered but invisible until ready so .cells-area can be measured -->
-	<div class="{ready ? '' : 'invisible absolute'}">
+<div class="min-h-screen bg-background text-foreground flex flex-col select-none {ready ? '' : 'invisible'}">
 	<!-- Header -->
-	<div class="flex flex-col items-center pt-8 pb-6 px-4">
-		<div class="flex items-center gap-3 mb-6">
-			<Globe class="h-6 w-6 text-muted-foreground" strokeWidth={1.5} />
-			<h1 class="text-2xl font-light tracking-[0.3em] text-muted-foreground">TIMEZONE</h1>
+	<div class="flex flex-col items-center pt-8 max-sm:pt-4 pb-6 max-sm:pb-3 px-4">
+		<div class="flex items-center gap-3 mb-6 max-sm:mb-4">
+			<Globe class="h-6 w-6 max-sm:h-5 max-sm:w-5 text-muted-foreground" strokeWidth={1.5} />
+			<h1 class="text-2xl max-sm:text-xl font-light tracking-[0.3em] text-muted-foreground">TIMEZONE</h1>
 		</div>
 
 		<!-- Search + Date nav -->
@@ -758,9 +766,10 @@
 
 				<!-- Date carousel (minimap) -->
 				<div
-					class="nav-carousel-area relative overflow-hidden select-none w-64"
+					class="nav-carousel-area relative overflow-hidden select-none w-64 max-sm:flex-1 max-sm:w-auto"
 					style="cursor: {isDraggingNav ? 'grabbing' : 'grab'}"
 					onmousedown={handleNavDragStart}
+					ontouchstart={handleNavTouchStart}
 					role="presentation"
 				>
 					<div
@@ -803,11 +812,11 @@
 
 	<!-- Timezone rows -->
 	{#if selectedTimezones.length > 0}
-		<div class="flex-1 px-4 pb-8">
+		<div class="flex-1 px-4 max-sm:px-2 pb-8">
 			<div class="max-w-6xl mx-auto">
 				<!-- Blue dot above the grid -->
 				{#if nowLineVisible}
-					<div class="flex">
+					<div class="flex max-sm:hidden">
 						<div class="w-44 shrink-0"></div>
 						<div class="flex-1 relative">
 							<div
@@ -824,12 +833,13 @@
 					onmousemove={handleCellsMouseMove}
 					onmouseleave={handleCellsMouseLeave}
 					onmousedown={handleDragStart}
+					ontouchstart={handleTouchStart}
 					role="presentation"
 					style="cursor: {isDragging ? 'grabbing' : 'grab'}"
 				>
-					<!-- Blue now-line -->
+					<!-- Blue now-line (desktop only — on mobile, rendered per-row) -->
 					{#if nowLineVisible}
-						<div class="absolute top-0 bottom-0 flex pointer-events-none" style="left: 0; right: 0;">
+						<div class="absolute top-0 bottom-0 flex pointer-events-none max-sm:hidden" style="left: 0; right: 0;">
 							<div class="w-44 shrink-0"></div>
 							<div class="flex-1 relative">
 								<div
@@ -840,9 +850,9 @@
 						</div>
 					{/if}
 
-					<!-- Gray hover-line -->
+					<!-- Gray hover-line (desktop only) -->
 					{#if hoverPercent !== null && !isDragging}
-						<div class="absolute top-0 bottom-0 flex pointer-events-none" style="left: 0; right: 0;">
+						<div class="absolute top-0 bottom-0 flex pointer-events-none max-sm:hidden" style="left: 0; right: 0;">
 							<div class="w-44 shrink-0"></div>
 							<div class="flex-1 relative">
 								<div
@@ -854,11 +864,12 @@
 					{/if}
 
 					<!-- Rows -->
-					<div class="space-y-1">
+					<div class="space-y-1 max-sm:space-y-3">
 						{#each selectedTimezones as entry, rowIndex}
-							<div class="group relative flex items-center gap-0">
-								<!-- Remove button -->
-								<div class="w-6 shrink-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+							<div class="group relative flex sm:items-center gap-0 max-sm:flex-col">
+								<!-- Remove button (left column on desktop, top-right on mobile) -->
+								<div class="w-6 shrink-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity
+									max-sm:absolute max-sm:right-0 max-sm:top-0 max-sm:w-auto max-sm:z-30">
 									<button
 										type="button"
 										onclick={() => removeTimezoneAt(rowIndex)}
@@ -869,7 +880,8 @@
 								</div>
 
 								<!-- Timezone label -->
-								<div class="w-38 shrink-0 relative pr-2 h-12 flex flex-col justify-center">
+								<div class="sm:w-38 sm:shrink-0 relative sm:pr-2 sm:h-12 flex flex-col sm:justify-center
+									max-sm:flex-row max-sm:items-baseline max-sm:gap-2 max-sm:px-1 max-sm:py-1">
 									<div class="font-medium text-sm leading-tight flex items-center gap-1.5">
 										{entry.label}
 										{#if entry.id === localTz}
@@ -878,17 +890,17 @@
 									</div>
 									{#if hoverPercent !== null && !isDragging}
 										{@const hovered = getHoveredTime(entry.id, hoverPercent)}
-										<div class="text-[11px] text-foreground/80 leading-tight mt-0.5 font-medium">
+										<div class="text-[11px] text-foreground/80 leading-tight mt-0.5 max-sm:mt-0 font-medium">
 											{hovered.date} &middot; {hovered.time}
 										</div>
 									{:else}
-										<div class="text-[11px] text-muted-foreground leading-tight mt-0.5">
+										<div class="text-[11px] text-muted-foreground leading-tight mt-0.5 max-sm:mt-0">
 											{formatTimeWithSeconds(entry.id)} &middot; {getTimezoneAbbr(entry.id)}
 										</div>
 									{/if}
 
-									<!-- Reorder buttons -->
-									<div class="absolute right-0 top-1/2 -translate-y-1/2 flex flex-col opacity-0 group-hover:opacity-100 transition-opacity">
+									<!-- Reorder buttons (desktop only) -->
+									<div class="absolute right-0 top-1/2 -translate-y-1/2 flex flex-col opacity-0 group-hover:opacity-100 transition-opacity max-sm:hidden">
 										{#if rowIndex > 0}
 											<button
 												type="button"
@@ -913,8 +925,13 @@
 								<!-- Hour cells - infinite carousel -->
 								<!-- svelte-ignore binding_property_non_reactive -->
 								<div
-									class="flex-1 relative overflow-hidden cells-area select-none"
+									class="flex-1 max-sm:w-full relative overflow-hidden cells-area select-none"
 								>
+									<!-- Mobile now-line (per-row) -->
+									{#if nowLineVisible}
+										<div class="hidden max-sm:block absolute top-0 bottom-0 w-[2px] bg-blue-500 z-20 -translate-x-1/2 pointer-events-none"
+											style="left: {nowLinePercent}%"></div>
+									{/if}
 									<div
 										class="relative flex will-change-transform {smoothPan ? 'transition-transform duration-300 ease-in-out' : ''}"
 										style="transform: translateX({stripTranslateX + (cachedFractionalOffsets.get(entry.id) ?? 0) * cellWidth}px)"
@@ -989,5 +1006,4 @@
 			<p>Type to search and add timezones</p>
 		</div>
 	{/if}
-	</div>
 </div>
