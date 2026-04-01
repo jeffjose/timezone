@@ -210,6 +210,8 @@
 	// Smooth pan: shared by both carousels for < > and goToDate
 	let smoothPan = $state(false);
 	let smoothPanTimer: ReturnType<typeof setTimeout> | null = null;
+	// Transition style for overlays (now-line, markers) during smooth pan
+	let panTransition = $derived(smoothPan ? 'transition: left 300ms ease-in-out, width 300ms ease-in-out;' : '');
 
 	function smoothNavigate(targetCenter: number) {
 		if (smoothPanTimer) clearTimeout(smoothPanTimer);
@@ -1158,7 +1160,7 @@ function handleMarkerLineClick(e: MouseEvent, markerId: number) {
 						<!-- Blue dot (now indicator) -->
 						{#if nowLineVisible}
 							<div class="absolute bottom-0 w-[10px] h-[10px] rounded-full bg-blue-500 z-20 -translate-x-1/2 translate-y-1/2 pointer-events-none max-sm:hidden"
-								style="left: {nowLinePercent}%"></div>
+								style="left: {nowLinePercent}%; {panTransition}"></div>
 						{/if}
 
 						<!-- Hover indicator: + at bottom edge (same level as blue dot) -->
@@ -1176,7 +1178,7 @@ function handleMarkerLineClick(e: MouseEvent, markerId: number) {
 								<div
 									class="marker-label group/marker absolute top-0 -translate-x-1/2 text-[10px] font-medium whitespace-nowrap select-none px-1 py-0.5 rounded z-30
 										{isEditing ? 'ring-1 ring-offset-1' : 'cursor-grab active:cursor-grabbing'}"
-									style="left: {marker.isInterval ? (marker.leftPct + marker.rightPct) / 2 : marker.percent}%; color: {marker.color}; background: {marker.color}15; {isEditing ? `ring-color: ${marker.color}` : ''}"
+									style="left: {marker.isInterval ? (marker.leftPct + marker.rightPct) / 2 : marker.percent}%; color: {marker.color}; background: {marker.color}15; {isEditing ? `ring-color: ${marker.color};` : ''} {panTransition}"
 									onmousedown={(e) => { if (!isEditing && !(e.target as HTMLElement).closest('.marker-menu-trigger')) { e.stopPropagation(); handleMarkerDragStart(e, marker.id); } }}
 									ondblclick={(e) => handleMarkerDblClick(e, marker.id)}
 								>
@@ -1293,7 +1295,7 @@ function handleMarkerLineClick(e: MouseEvent, markerId: number) {
 						<div class="absolute top-0 bottom-0 overflow-hidden pointer-events-none max-sm:hidden" style="left: 11rem; right: 0;">
 							<div
 								class="absolute top-0 bottom-0 w-[2px] bg-blue-500 z-20 -translate-x-1/2"
-								style="left: {nowLinePercent}%"
+								style="left: {nowLinePercent}%; {panTransition}"
 							></div>
 						</div>
 					{/if}
@@ -1320,7 +1322,7 @@ function handleMarkerLineClick(e: MouseEvent, markerId: number) {
 										<!-- svelte-ignore a11y_no_static_element_interactions -->
 										<div
 											class="marker-line absolute top-0 bottom-0 pointer-events-none"
-											style="left: {marker.leftPct}%; width: {marker.rightPct - marker.leftPct}%; background: {marker.color}20;"
+											style="left: {marker.leftPct}%; width: {marker.rightPct - marker.leftPct}%; background: {marker.color}20; {panTransition}"
 										>
 											<!-- Left edge -->
 											<div class="absolute left-0 top-0 bottom-0 w-[2px]" style="background: {marker.color}"></div>
@@ -1333,7 +1335,7 @@ function handleMarkerLineClick(e: MouseEvent, markerId: number) {
 										<!-- svelte-ignore a11y_no_static_element_interactions -->
 										<div
 											class="absolute top-0 bottom-0 -translate-x-1/2 pointer-events-none"
-											style="left: {marker.percent}%; width: 2px; background: {marker.color}"
+											style="left: {marker.percent}%; width: 2px; background: {marker.color}; {panTransition}"
 										></div>
 									{/if}
 								</div>
@@ -1431,20 +1433,20 @@ function handleMarkerLineClick(e: MouseEvent, markerId: number) {
 									<!-- Mobile now-line (per-row) -->
 									{#if nowLineVisible}
 										<div class="hidden max-sm:block absolute top-0 bottom-0 w-[2px] bg-blue-500 z-20 -translate-x-1/2 pointer-events-none"
-											style="left: {nowLinePercent}%"></div>
+											style="left: {nowLinePercent}%; {panTransition}"></div>
 									{/if}
 									<!-- Mobile marker lines (per-row) -->
 									{#each markerPositions as marker}
 										{#if marker.visible}
 											{#if marker.isInterval}
 												<div class="hidden max-sm:block absolute top-0 bottom-0 pointer-events-none"
-													style="left: {marker.leftPct}%; width: {marker.rightPct - marker.leftPct}%; background: {marker.color}20; z-index: 25;">
+													style="left: {marker.leftPct}%; width: {marker.rightPct - marker.leftPct}%; background: {marker.color}20; z-index: 25; {panTransition}">
 													<div class="absolute left-0 top-0 bottom-0 w-[2px]" style="background: {marker.color}"></div>
 													<div class="absolute right-0 top-0 bottom-0 w-[2px]" style="background: {marker.color}"></div>
 												</div>
 											{:else}
 												<div class="hidden max-sm:block absolute top-0 bottom-0 w-[2px] -translate-x-1/2 pointer-events-none"
-													style="left: {marker.percent}%; background: {marker.color}; z-index: 25;"></div>
+													style="left: {marker.percent}%; background: {marker.color}; z-index: 25; {panTransition}"></div>
 											{/if}
 										{/if}
 									{/each}
