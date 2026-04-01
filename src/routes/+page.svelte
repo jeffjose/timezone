@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
+	import { onMount, tick } from 'svelte';
 	import { page } from '$app/stores';
 	import { goto } from '$app/navigation';
 	import {
@@ -35,28 +35,76 @@
 	let now = $state(new Date());
 	let dropdownEl: HTMLDivElement | undefined = $state();
 	let hoverPercent: number | null = $state(null);
-	let gridOpacity = $state(1);
-
-	// Selected date for the grid (defaults to today)
-	let selectedDate: Date = $state(new Date());
 	let calendarOpen = $state(false);
+
+	// Carousel state
+	// centerHour = the ref timezone hour at the center of the viewport
+	// It's relative to "today midnight" in the ref tz: e.g., 19.5 = 7:30pm today, 43 = 7pm tomorrow
+	let centerHour = $state(0);
+	let navAnimating = $state(false);
+	let isDragging = $state(false);
+	let dragStartX = $state(0);
+	let dragStartCenter = $state(0);
+	let containerWidth = $state(1); // measured on mount
 
 	// Derived
 	let showDropdown = $derived(searchFocused && query.length > 0 && (searchResults.length > 0 || isSearchingRemote));
 	let selectedIds = $derived(selectedTimezones.map((t) => t.id));
 	let refTzId = $derived(selectedTimezones[0]?.id);
-	let isToday = $derived(isSameDay(selectedDate, new Date()));
+	let cellWidth = $derived(containerWidth / 24);
 
-	// Calendar value for shadcn calendar
+	// The range of hours to render: 72 hours (3 days)
+	// renderAnchor only updates when centerHour drifts far from it (avoids re-rendering cells on every drag frame)
+	const BUFFER = 24;
+	const TOTAL_CELLS = 24 + 2 * BUFFER; // 72
+	let renderAnchor = $state(0);
+	let renderStart = $derived(renderAnchor - BUFFER - 12);
+	let renderHours = $derived(Array.from({ length: TOTAL_CELLS }, (_, i) => renderStart + i));
+
+	// Re-anchor when centerHour drifts more than 12 hours from the anchor
+	$effect(() => {
+		if (Math.abs(centerHour - renderAnchor) > 12) {
+			renderAnchor = Math.floor(centerHour);
+		}
+	});
+
+	// translateX to position the strip so centerHour is at viewport center
+	let stripTranslateX = $derived((() => {
+		const centerPosInStrip = (centerHour - renderStart) * cellWidth;
+		return containerWidth / 2 - centerPosInStrip;
+	})());
+
+	// Current fractional hour in ref tz (for now-line)
+	let currentHourFrac = $derived((() => {
+		if (!refTzId) return 0;
+		const refNow = new Date(now.toLocaleString('en-US', { timeZone: refTzId }));
+		return refNow.getHours() + refNow.getMinutes() / 60 + refNow.getSeconds() / 3600;
+	})());
+
+	// Now-line position as pixels from left of cells-area
+	let nowLineScreenX = $derived((() => {
+		const nowPosInStrip = (currentHourFrac - renderStart) * cellWidth;
+		return nowPosInStrip + stripTranslateX;
+	})());
+	let nowLinePercent = $derived((nowLineScreenX / containerWidth) * 100);
+	let nowLineVisible = $derived(nowLinePercent >= 0 && nowLinePercent <= 100);
+
+	// Derive "selectedDate" from centerHour for calendar/nav
+	let selectedDate = $derived((() => {
+		const d = new Date();
+		const dayOffset = Math.floor(centerHour / 24);
+		d.setDate(d.getDate() + dayOffset);
+		d.setHours(0, 0, 0, 0);
+		return d;
+	})());
+
+	let isToday = $derived(isSameDay(selectedDate, new Date()));
 	let calendarValue = $derived(
 		new CalendarDate(selectedDate.getFullYear(), selectedDate.getMonth() + 1, selectedDate.getDate())
 	);
-
-	// Days to show in the quick-nav bar
 	let navDays = $derived(getNavDays(selectedDate));
 
 	const localTz = Intl.DateTimeFormat().resolvedOptions().timeZone;
-	const hours = Array.from({ length: 24 }, (_, i) => i);
 
 	function isSameDay(a: Date, b: Date): boolean {
 		return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
@@ -72,38 +120,72 @@
 		return days;
 	}
 
-	function animateDateChange(fn: () => void) {
-		gridOpacity = 0;
+	// Navigation with crossfade+slide on cells only
+	// Uses CSS animation keyframes for true overlap
+	let navCellsAnimation = $state('');
+
+	function animateNav(targetCenter: number) {
+		if (navAnimating) return;
+		const direction = targetCenter > centerHour ? 'left' : 'right';
+		navAnimating = true;
+
+		// Apply the animation class
+		navCellsAnimation = direction === 'left' ? 'nav-slide-left' : 'nav-slide-right';
+
+		// Update data at the midpoint of the animation
 		setTimeout(() => {
-			fn();
-			gridOpacity = 1;
-		}, 120);
+			centerHour = targetCenter;
+			renderAnchor = Math.floor(targetCenter);
+		}, 80);
+
+		// Clean up after animation completes
+		setTimeout(() => {
+			navCellsAnimation = '';
+			navAnimating = false;
+		}, 200);
+	}
+
+	function shiftView(hours: number) {
+		animateNav(centerHour + hours);
 	}
 
 	function goToDate(date: Date) {
-		if (isSameDay(date, selectedDate)) return;
-		animateDateChange(() => {
-			selectedDate = new Date(date);
-		});
+		const todayDate = new Date();
+		todayDate.setHours(0, 0, 0, 0);
+		const target = new Date(date);
+		target.setHours(0, 0, 0, 0);
+		const dayDiff = Math.round((target.getTime() - todayDate.getTime()) / 86400000);
+		const targetCenter = dayDiff * 24 + (currentHourFrac % 24);
 		calendarOpen = false;
+		animateNav(targetCenter);
 	}
 
 	function goToday() {
-		if (isToday) return;
-		animateDateChange(() => {
-			selectedDate = new Date();
-		});
+		animateNav(currentHourFrac);
 	}
 
-	function shiftDate(days: number) {
-		animateDateChange(() => {
-			const d = new Date(selectedDate);
-			d.setDate(d.getDate() + days);
-			selectedDate = d;
-		});
+	// Drag to pan
+	function handleDragStart(e: MouseEvent) {
+		if ((e.target as HTMLElement).closest('button')) return;
+		isDragging = true;
+		dragStartX = e.clientX;
+		dragStartCenter = centerHour;
+
 	}
 
-	onMount(() => {
+	function handleDragMove(e: MouseEvent) {
+		if (!isDragging) return;
+		const dx = e.clientX - dragStartX;
+		// Moving mouse right = seeing earlier hours = centerHour decreases
+		centerHour = dragStartCenter - dx / cellWidth;
+	}
+
+	function handleDragEnd() {
+		if (!isDragging) return;
+		isDragging = false;
+	}
+
+	onMount(async () => {
 		allTimezones = getAllTimezones();
 
 		const urlTz = $page.url.searchParams.get('tz');
@@ -122,11 +204,30 @@
 			selectedTimezones = [{ id: localTz, label: getCityName(localTz) }];
 		}
 
+		// Center on current time
+		if (refTzId) {
+			const refNow = new Date(now.toLocaleString('en-US', { timeZone: refTzId }));
+			centerHour = refNow.getHours() + refNow.getMinutes() / 60;
+			renderAnchor = Math.floor(centerHour);
+		}
+
+		// Measure container after DOM renders
+		let ro: ResizeObserver | undefined;
+		await tick();
+		const measure = () => {
+			const el = document.querySelector('.cells-area');
+			if (el) containerWidth = el.clientWidth;
+		};
+		measure();
+		ro = new ResizeObserver(measure);
+		const el = document.querySelector('.cells-area');
+		if (el) ro.observe(el);
+
 		const interval = setInterval(() => {
 			now = new Date();
 		}, 1000);
 
-		return () => clearInterval(interval);
+		return () => { clearInterval(interval); ro?.disconnect(); };
 	});
 
 	function updateUrl() {
@@ -167,13 +268,11 @@
 			searchResults = localResults;
 			highlightedIndex = localResults.length > 0 ? 0 : -1;
 
-			// Debounced remote fallback if local results are sparse
 			if (localResults.length < 3 && query.length >= 2) {
 				isSearchingRemote = true;
 				remoteSearchTimeout = setTimeout(async () => {
 					const currentQuery = query;
 					const remoteResults = await searchTimezonesRemote(currentQuery, allTimezones);
-					// Only apply if query hasn't changed
 					if (query !== currentQuery) return;
 					isSearchingRemote = false;
 					if (remoteResults.length > 0) {
@@ -232,6 +331,11 @@
 
 	function handleGlobalKeydown(e: KeyboardEvent) {
 		if (document.activeElement === inputEl || e.ctrlKey || e.metaKey || e.altKey) return;
+		if (e.key === '/') {
+			e.preventDefault();
+			inputEl?.focus();
+			return;
+		}
 		if (e.key.length === 1) {
 			e.preventDefault();
 			inputEl?.focus();
@@ -240,13 +344,8 @@
 		}
 	}
 
-	// Use selectedDate as the base for hour calculations (not now)
 	function getBaseDate(): Date {
-		if (isToday) return now;
-		// Use noon of selectedDate to avoid DST edge cases
-		const d = new Date(selectedDate);
-		d.setHours(12, 0, 0, 0);
-		return d;
+		return now;
 	}
 
 	function getHourForTimezone(tz: string, hour: number): { displayHour: number; minutes: number; period: string; isCurrentHour: boolean; dayOffset: number } {
@@ -255,28 +354,21 @@
 		const refOffset = getTimezoneOffset(refTzId, base);
 		const refDiffMinutes = offsetMinutes - refOffset;
 
-		// Total minutes from start of ref day in the target timezone
 		const totalMinutes = hour * 60 + refDiffMinutes;
 		const tzHour = (((Math.floor(totalMinutes / 60)) % 24) + 24) % 24;
 		const minutes = ((totalMinutes % 60) + 60) % 60;
 		const dayOffset = Math.floor(totalMinutes / (24 * 60));
 
-		let isCurrentHour = false;
-		if (isToday) {
-			const nowInTz = new Date(now.toLocaleString('en-US', { timeZone: tz }));
-			isCurrentHour = tzHour === nowInTz.getHours();
-		}
+		// All cells at the same ref hour represent the same moment in time
+		const isCurrentHour = hour === Math.floor(currentHourFrac);
 
-		const displayHour = tzHour % 12 || 12;
-		const period = tzHour < 12 ? 'AM' : 'PM';
+		// For :30/:45 offsets, the cell is shifted right so its visual center
+		// is at (tzHour + minutes/60). Round to nearest hour for the label.
+		const labelHour = minutes >= 30 ? (tzHour + 1) % 24 : tzHour;
+		const displayHour = labelHour % 12 || 12;
+		const period = labelHour < 12 ? 'AM' : 'PM';
 
 		return { displayHour, minutes, period, isCurrentHour, dayOffset };
-	}
-
-	function getNowLinePercent(): number {
-		if (!refTzId || !isToday) return -1;
-		const nowInRef = new Date(now.toLocaleString('en-US', { timeZone: refTzId }));
-		return ((nowInRef.getHours() + nowInRef.getMinutes() / 60) / 24) * 100;
 	}
 
 	function getTzHourValue(tz: string, hour: number): number {
@@ -288,8 +380,6 @@
 		return (((Math.floor(totalMinutes / 60)) % 24) + 24) % 24;
 	}
 
-	// Get the fractional hour offset for a timezone (0-59 minutes)
-	// Used to shift cells horizontally so they align temporally
 	function getMinuteOffset(tz: string): number {
 		const base = getBaseDate();
 		const offsetMinutes = getTimezoneOffset(tz, base);
@@ -298,24 +388,24 @@
 		return ((diffMinutes % 60) + 60) % 60;
 	}
 
-	// Convert minute offset to percentage of one cell width
-	function getOffsetPercent(tz: string): number {
-		const mins = getMinuteOffset(tz);
-		// One cell = 100/24% of container. Offset = (mins/60) of one cell
-		return (mins / 60) * (100 / 24);
-	}
-
+	// Daylight arc SVG path spanning all rendered cells
 	function getDaylightPath(tz: string): string {
 		const points: { x: number; y: number }[] = [];
 		const height = 40;
 		const maxArc = height * 0.65;
+		const steps = TOTAL_CELLS * 2;
 
-		for (let i = 0; i <= 48; i++) {
-			const actualHour = getTzHourValue(tz, Math.floor(i / 2) % 24);
-			const fractionalHour = actualHour + (i % 2) * 0.5;
-			const radians = ((fractionalHour - 13) / 24) * Math.PI * 2;
+		for (let i = 0; i <= steps; i++) {
+			const hourIndex = i / 2;
+			const hour = renderStart + hourIndex;
+			// Get the actual tz hour (0-23) for this position
+			const actualHour = getTzHourValue(tz, Math.floor(hour));
+			const frac = hour - Math.floor(hour);
+			const continuousHour = actualHour + frac;
+			// Cosine peaks at 13 (1pm)
+			const radians = ((continuousHour - 13) / 24) * Math.PI * 2;
 			const val = (Math.cos(radians) + 1) / 2;
-			const x = (i / 48) * 100;
+			const x = (hourIndex / TOTAL_CELLS) * 100;
 			const y = height - val * maxArc;
 			points.push({ x, y });
 		}
@@ -329,6 +419,10 @@
 		}
 		d += ` L 100 ${height} L 0 ${height} Z`;
 		return d;
+	}
+
+	function getOffsetCells(tz: string): number {
+		return getMinuteOffset(tz) / 60;
 	}
 
 	function formatTimeWithSeconds(tz: string): string {
@@ -346,22 +440,27 @@
 		return (parts[parts.length - 1] || tzId).replace(/_/g, ' ');
 	}
 
-	function getHoveredTime(tz: string, percent: number): { time: string; date: string } {
+	function getHoveredTime(tz: string, screenPercent: number): { time: string; date: string } {
+		// Convert screen percent to ref timezone hour
+		const screenX = (screenPercent / 100) * containerWidth;
+		const refHour = (screenX - stripTranslateX) / cellWidth + renderStart;
+
 		const base = getBaseDate();
-		const refHour = (percent / 100) * 24;
 		const offsetMinutes = getTimezoneOffset(tz, base);
 		const refOffset = getTimezoneOffset(refTzId, base);
-		const refDiff = offsetMinutes - refOffset;
-		const tzHourRaw = refHour + Math.round(refDiff / 60);
-		const dayOffset = Math.floor(tzHourRaw / 24);
-		const tzHour = ((tzHourRaw % 24) + 24) % 24;
-		const h = Math.floor(tzHour);
-		const m = Math.round((tzHour - h) * 60);
+		const refDiffMinutes = offsetMinutes - refOffset;
+		const totalMinutes = refHour * 60 + refDiffMinutes;
+		const dayOffset = Math.floor(totalMinutes / (24 * 60));
+		const minuteInDay = ((totalMinutes % (24 * 60)) + 24 * 60) % (24 * 60);
+		const h = Math.floor(minuteInDay / 60);
+		const m = Math.round(minuteInDay % 60);
 		const displayHour = h % 12 || 12;
 		const period = h < 12 ? 'AM' : 'PM';
 		const time = `${displayHour}:${String(m).padStart(2, '0')} ${period}`;
 
-		const hoveredDate = new Date(selectedDate.getTime() + dayOffset * 86400000);
+		const todayDate = new Date();
+		todayDate.setHours(0, 0, 0, 0);
+		const hoveredDate = new Date(todayDate.getTime() + dayOffset * 86400000);
 		const date = new Intl.DateTimeFormat('en-US', {
 			weekday: 'short',
 			month: 'short',
@@ -372,6 +471,7 @@
 	}
 
 	function handleCellsMouseMove(e: MouseEvent) {
+		if (isDragging) return;
 		const container = e.currentTarget as HTMLElement;
 		const cellsEl = container.querySelector('.cells-area');
 		if (!cellsEl) return;
@@ -390,9 +490,10 @@
 		}
 	}
 
-	// Get date for a given timezone at midnight cell
 	function getMidnightDateLabel(tz: string, dayOffset: number): { weekday: string; month: string; day: number } {
-		const d = new Date(selectedDate.getTime() + dayOffset * 86400000);
+		const todayDate = new Date();
+		todayDate.setHours(0, 0, 0, 0);
+		const d = new Date(todayDate.getTime() + dayOffset * 86400000);
 		const weekday = new Intl.DateTimeFormat('en-US', { weekday: 'short' }).format(d).toUpperCase();
 		const month = new Intl.DateTimeFormat('en-US', { month: 'short' }).format(d).toUpperCase();
 		const day = d.getDate();
@@ -405,13 +506,14 @@
 		const dow = d.getDay();
 		return { dayNum, weekday, isWeekend: dow === 0 || dow === 6 };
 	}
-
-	function formatNavMonth(d: Date): string {
-		return new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric' }).format(d);
-	}
 </script>
 
-<svelte:window onkeydown={handleGlobalKeydown} onclick={handleClickOutside} />
+<svelte:window
+	onkeydown={handleGlobalKeydown}
+	onclick={handleClickOutside}
+	onmousemove={handleDragMove}
+	onmouseup={handleDragEnd}
+/>
 
 <svelte:head>
 	<title>Timezone</title>
@@ -502,7 +604,7 @@
 			<div class="flex items-center gap-1">
 				<button
 					type="button"
-					onclick={() => shiftDate(-1)}
+					onclick={() => shiftView(-24)}
 					class="p-1.5 rounded-md hover:bg-accent text-muted-foreground hover:text-foreground transition-colors"
 				>
 					<ChevronLeft class="h-4 w-4" />
@@ -550,17 +652,16 @@
 
 				<button
 					type="button"
-					onclick={() => shiftDate(1)}
+					onclick={() => shiftView(24)}
 					class="p-1.5 rounded-md hover:bg-accent text-muted-foreground hover:text-foreground transition-colors"
 				>
 					<ChevronRight class="h-4 w-4" />
 				</button>
 
-				<!-- Today button (always present, highlighted when not on today) -->
 				<button
 					type="button"
 					onclick={goToday}
-					class="p-1 rounded-md transition-colors {isToday
+					class="p-1 rounded-md transition-colors {Math.abs(centerHour - currentHourFrac) < 0.5
 						? 'text-muted-foreground/30 cursor-default'
 						: 'text-blue-400 hover:bg-blue-500/15'}"
 					title="Go to today"
@@ -575,42 +676,43 @@
 	{#if selectedTimezones.length > 0}
 		<div class="flex-1 px-4 pb-8">
 			<div class="max-w-6xl mx-auto">
-				<!-- Blue dot above the grid (only when viewing today) -->
-				{#if isToday}
+				<!-- Blue dot above the grid -->
+				{#if nowLineVisible}
 					<div class="flex">
 						<div class="w-44 shrink-0"></div>
 						<div class="flex-1 relative">
 							<div
 								class="absolute -top-3 w-[10px] h-[10px] rounded-full bg-blue-500 z-20 -translate-x-1/2"
-								style="left: {getNowLinePercent()}%"
+								style="left: {nowLinePercent}%"
 							></div>
 						</div>
 					</div>
 				{/if}
 
-				<!-- Grid with lines overlay -->
+				<!-- Grid -->
 				<div
-					class="relative transition-opacity duration-150"
-					style="opacity: {gridOpacity}"
+					class="relative overflow-hidden"
 					onmousemove={handleCellsMouseMove}
 					onmouseleave={handleCellsMouseLeave}
+					onmousedown={handleDragStart}
 					role="presentation"
+					style="cursor: {isDragging ? 'grabbing' : 'grab'}"
 				>
-					<!-- Blue now-line (only when viewing today) -->
-					{#if isToday && getNowLinePercent() >= 0}
+					<!-- Blue now-line -->
+					{#if nowLineVisible}
 						<div class="absolute top-0 bottom-0 flex pointer-events-none" style="left: 0; right: 0;">
 							<div class="w-44 shrink-0"></div>
 							<div class="flex-1 relative">
 								<div
 									class="absolute top-0 bottom-0 w-[2px] bg-blue-500 z-20 -translate-x-1/2"
-									style="left: {getNowLinePercent()}%"
+									style="left: {nowLinePercent}%"
 								></div>
 							</div>
 						</div>
 					{/if}
 
 					<!-- Gray hover-line -->
-					{#if hoverPercent !== null}
+					{#if hoverPercent !== null && !isDragging}
 						<div class="absolute top-0 bottom-0 flex pointer-events-none" style="left: 0; right: 0;">
 							<div class="w-44 shrink-0"></div>
 							<div class="flex-1 relative">
@@ -645,18 +747,14 @@
 											<span class="text-[9px] font-medium text-blue-400 bg-blue-400/10 px-1 py-px rounded">HOME</span>
 										{/if}
 									</div>
-									{#if hoverPercent !== null}
+									{#if hoverPercent !== null && !isDragging}
 										{@const hovered = getHoveredTime(entry.id, hoverPercent)}
 										<div class="text-[11px] text-foreground/80 leading-tight mt-0.5 font-medium">
 											{hovered.date} &middot; {hovered.time}
 										</div>
 									{:else}
 										<div class="text-[11px] text-muted-foreground leading-tight mt-0.5">
-											{#if isToday}
-												{formatTimeWithSeconds(entry.id)} &middot; {getTimezoneAbbr(entry.id)}
-											{:else}
-												{getTimezoneAbbr(entry.id)} &middot; {formatOffset(getTimezoneOffset(entry.id, getBaseDate()))}
-											{/if}
+											{formatTimeWithSeconds(entry.id)} &middot; {getTimezoneAbbr(entry.id)}
 										</div>
 									{/if}
 
@@ -683,67 +781,75 @@
 									</div>
 								</div>
 
-								<!-- Hour cells with daylight arc -->
-								<div class="flex-1 relative overflow-hidden no-scrollbar cells-area">
-									<!-- Inner container shifted by minute offset -->
-									<div class="relative" style="margin-left: {getOffsetPercent(entry.id)}%">
+								<!-- Hour cells - infinite carousel -->
+								<!-- svelte-ignore binding_property_non_reactive -->
+								<div
+									class="flex-1 relative overflow-hidden cells-area select-none {navCellsAnimation}"
+								>
+									<div
+										class="relative flex"
+										style="transform: translateX({stripTranslateX + getOffsetCells(entry.id) * cellWidth}px)"
+									>
 										<!-- Daylight arc SVG -->
 										<svg
-											class="absolute inset-0 w-full h-full pointer-events-none"
+											class="absolute top-0 left-0 pointer-events-none"
+											style="width: {TOTAL_CELLS * cellWidth}px; height: 40px"
 											viewBox="0 0 100 40"
 											preserveAspectRatio="none"
 										>
 											<path
 												d={getDaylightPath(entry.id)}
 												fill="url(#daylight-{rowIndex})"
+												stroke="rgba(255,255,255,0.15)"
+												stroke-width="0.4"
+												vector-effect="non-scaling-stroke"
 											/>
 											<defs>
 												<linearGradient id="daylight-{rowIndex}" x1="0" y1="0" x2="0" y2="1">
-													<stop offset="0%" stop-color="white" stop-opacity="0.08" />
-													<stop offset="100%" stop-color="white" stop-opacity="0.01" />
+													<stop offset="0%" stop-color="white" stop-opacity="0.12" />
+													<stop offset="100%" stop-color="white" stop-opacity="0.02" />
 												</linearGradient>
 											</defs>
 										</svg>
-
-										<!-- Cells -->
-										<div class="flex relative z-10">
-										{#each hours as hour}
+										{#each renderHours as hour}
 											{@const tzHour = getHourForTimezone(entry.id, hour)}
 											{@const actualHour = getTzHourValue(entry.id, hour)}
 											{@const isNow = tzHour.isCurrentHour}
 											{@const isMidnight = actualHour === 0}
 											<div
-												class="flex-1 min-w-[2.75rem] h-10 flex items-center justify-center relative
-													{isMidnight ? 'border-l border-l-muted-foreground/40' : 'border-l border-l-border/20'}"
+												class="h-10 flex items-center justify-center relative shrink-0 z-10
+													{isMidnight ? 'border-l-2 border-l-amber-400/70' : 'border-l border-l-border/20'}
+													{actualHour >= 22 || actualHour < 6 ? 'bg-black/15' : ''}"
+												style="width: {cellWidth}px"
 											>
 												{#if isMidnight}
 													{@const dateLabel = getMidnightDateLabel(entry.id, tzHour.dayOffset)}
-													<div class="absolute -top-5 left-0 flex flex-col items-center text-muted-foreground whitespace-nowrap">
-														<span class="text-[8px] font-semibold leading-none">{dateLabel.weekday}</span>
-														<span class="text-[9px] font-medium leading-tight">{dateLabel.month} {dateLabel.day}</span>
+													<div class="absolute -top-6 left-1/2 -translate-x-1/2 flex items-center gap-1 text-amber-400 whitespace-nowrap">
+														<span class="text-[9px] font-bold leading-none">{dateLabel.weekday}</span>
+														<span class="text-[8px] font-medium leading-none text-amber-400/70">{dateLabel.month} {dateLabel.day}</span>
 													</div>
-													<div class="absolute left-0 top-0 bottom-0 w-px bg-muted-foreground/40"></div>
 												{/if}
 												<span class="text-xs font-medium
 													{isNow
 														? 'text-blue-400'
-														: actualHour >= 9 && actualHour < 17
-															? 'text-foreground'
-															: actualHour >= 22 || actualHour < 6
-																? 'text-muted-foreground'
-																: 'text-foreground/70'}">
+														: isMidnight
+															? 'text-amber-400/90'
+															: actualHour >= 9 && actualHour < 17
+																? 'text-foreground'
+																: actualHour >= 22 || actualHour < 6
+																	? 'text-muted-foreground/60'
+																	: 'text-foreground/70'}">
 													{tzHour.displayHour}{tzHour.period[0].toLowerCase()}
 												</span>
 												{#if tzHour.dayOffset !== 0}
-													<span class="absolute top-0.5 right-0.5 text-[9px] font-medium text-muted-foreground">
-														{tzHour.dayOffset > 0 ? '+1' : '-1'}
+													<span class="absolute top-0.5 right-0.5 text-[9px] font-medium text-muted-foreground/60">
+														{tzHour.dayOffset > 0 ? `+${tzHour.dayOffset}` : tzHour.dayOffset}
 													</span>
 												{/if}
 											</div>
 										{/each}
 									</div>
 								</div>
-							</div>
 							</div>
 						{/each}
 					</div>
