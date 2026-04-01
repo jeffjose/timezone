@@ -1182,12 +1182,12 @@ function handleMarkerLineClick(e: MouseEvent, markerId: number) {
 										</DropdownMenu.Trigger>
 										<DropdownMenu.Portal>
 											<DropdownMenu.Content
-												class="z-50 min-w-[160px] overflow-hidden rounded-md border border-border bg-background p-1 text-foreground shadow-md"
+												class="z-50 min-w-[160px] overflow-hidden rounded-md border border-border bg-popover text-popover-foreground p-1 shadow-lg data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2"
 												sideOffset={4}
 											>
 												{#if marker.isInterval}
 													<DropdownMenu.Item
-														class="relative flex items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-none cursor-pointer transition-colors data-[highlighted]:bg-accent data-[highlighted]:text-accent-foreground"
+														class="relative flex items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-none cursor-default select-none transition-colors data-[highlighted]:bg-accent data-[highlighted]:text-accent-foreground"
 														onSelect={() => { editingMarkerId = editingMarkerId === marker.id ? null : marker.id; }}
 													>
 														<MoveHorizontal class="h-4 w-4 text-muted-foreground" />
@@ -1195,7 +1195,7 @@ function handleMarkerLineClick(e: MouseEvent, markerId: number) {
 													</DropdownMenu.Item>
 												{/if}
 												<DropdownMenu.Item
-													class="relative flex items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-none cursor-pointer transition-colors data-[highlighted]:bg-accent data-[highlighted]:text-accent-foreground"
+													class="relative flex items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-none cursor-default select-none transition-colors data-[highlighted]:bg-accent data-[highlighted]:text-accent-foreground"
 													onSelect={() => duplicateMarker(marker.id)}
 												>
 													<Copy class="h-4 w-4 text-muted-foreground" />
@@ -1203,7 +1203,7 @@ function handleMarkerLineClick(e: MouseEvent, markerId: number) {
 												</DropdownMenu.Item>
 												<DropdownMenu.Separator class="-mx-1 my-1 h-px bg-border" />
 												<DropdownMenu.Item
-													class="relative flex items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-none cursor-pointer transition-colors text-destructive data-[highlighted]:bg-destructive/10 data-[highlighted]:text-destructive"
+													class="relative flex items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-none cursor-default select-none transition-colors text-destructive data-[highlighted]:bg-destructive/10 data-[highlighted]:text-destructive"
 													onSelect={() => removeMarker(marker.id)}
 												>
 													<Trash2 class="h-4 w-4" />
