@@ -418,10 +418,12 @@
 		// For :30/:45 offsets, strip is shifted so cell centers align with local hours.
 		// Round label to the hour at the cell center.
 		const labelHour = minutes >= 30 ? (localHour + 1) % 24 : localHour;
+		// If rounding pushed us past midnight (23→0), we've crossed into the next day
+		const adjustedDayOffset = (minutes >= 30 && localHour === 23) ? dayOffset + 1 : dayOffset;
 		const displayHour = labelHour % 12 || 12;
 		const period = labelHour < 12 ? 'AM' : 'PM';
 
-		return { displayHour, period, dayOffset };
+		return { displayHour, period, dayOffset: adjustedDayOffset };
 	}
 
 	function getTzHourValue(tz: string, utcHour: number): number {
@@ -591,10 +593,10 @@
 			<h1 class="text-2xl font-light tracking-[0.3em] text-muted-foreground">TIMEZONE</h1>
 		</div>
 
-		<!-- Search + Date nav row -->
-		<div class="w-full max-w-4xl flex items-center gap-4">
+		<!-- Search + Date nav -->
+		<div class="w-full max-w-4xl flex flex-col gap-3">
 			<!-- Search box -->
-			<div class="search-container relative flex-1">
+			<div class="search-container relative">
 				<div
 					class="flex items-center gap-1.5 rounded-lg border border-border bg-card px-3 py-2 transition-colors focus-within:border-muted-foreground/50 overflow-hidden"
 				>
@@ -665,7 +667,7 @@
 			</div>
 
 			<!-- Date navigator -->
-			<div class="flex items-center gap-1">
+			<div class="flex items-center gap-1 self-end">
 				<button
 					type="button"
 					onclick={() => shiftView(-24)}
@@ -900,13 +902,9 @@
 											>
 												{#if isMidnight}
 													{@const dateLabel = getMidnightDateLabel(tzHour.dayOffset)}
-													<div class="flex flex-col items-center rounded overflow-hidden shadow-sm" style="width: 28px; border: 1px solid {dayColor.border}">
-														<div class="w-full text-center leading-none py-px" style="background: {dayColor.border}; color: white">
-															<span class="text-[7px] font-bold tracking-wide">{dateLabel.month}</span>
-														</div>
-														<div class="w-full text-center leading-none py-0.5 bg-background">
-															<span class="text-[11px] font-bold" style="color: {dayColor.text}">{dateLabel.day}</span>
-														</div>
+													<div class="flex flex-col items-center gap-0">
+														<span class="text-[8px] font-semibold uppercase tracking-wider leading-none" style="color: {dayColor.text}">{dateLabel.month}</span>
+														<span class="text-[15px] font-bold leading-tight" style="color: {dayColor.text}">{dateLabel.day}</span>
 													</div>
 												{:else}
 													<span class="text-xs font-medium
