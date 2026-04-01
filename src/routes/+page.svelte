@@ -53,17 +53,18 @@
 	let refTzId = $derived(selectedTimezones[0]?.id);
 	let cellWidth = $derived(containerWidth / 24);
 
-	// The range of hours to render: 72 hours (3 days)
+	// The range of hours to render: 264 hours (11 days)
 	// renderAnchor only updates when centerHour drifts far from it (avoids re-rendering cells on every drag frame)
-	const BUFFER = 24;
-	const TOTAL_CELLS = 24 + 2 * BUFFER; // 72
+	const BUFFER = 120;
+	const TOTAL_CELLS = 24 + 2 * BUFFER; // 264
 	let renderAnchor = $state(0);
 	let renderStart = $derived(renderAnchor - BUFFER - 12);
 	let renderHours = $derived(Array.from({ length: TOTAL_CELLS }, (_, i) => renderStart + i));
 
-	// Re-anchor when centerHour drifts more than 12 hours from the anchor
+	// Re-anchor when centerHour drifts far enough — only when no transition is in flight
 	$effect(() => {
-		if (Math.abs(centerHour - renderAnchor) > 12) {
+		const drift = Math.abs(centerHour - renderAnchor);
+		if (drift > 96 && !smoothPan) {
 			renderAnchor = Math.floor(centerHour);
 		}
 	});
@@ -89,16 +90,16 @@
 	let nowLinePercent = $derived((nowLineScreenX / containerWidth) * 100);
 	let nowLineVisible = $derived(nowLinePercent >= 0 && nowLinePercent <= 100);
 
-	// Derive "selectedDate" from centerHour for calendar/nav
+	// selectedDate follows the center of the viewport
+	let viewDayOffset = $derived(Math.floor(centerHour / 24));
 	let selectedDate = $derived((() => {
 		const d = new Date();
-		const dayOffset = Math.floor(centerHour / 24);
-		d.setDate(d.getDate() + dayOffset);
+		d.setDate(d.getDate() + viewDayOffset);
 		d.setHours(0, 0, 0, 0);
 		return d;
 	})());
 
-	let isToday = $derived(isSameDay(selectedDate, new Date()));
+	let isToday = $derived(viewDayOffset === 0);
 	let calendarValue = $derived(
 		new CalendarDate(selectedDate.getFullYear(), selectedDate.getMonth() + 1, selectedDate.getDate())
 	);
@@ -145,19 +146,27 @@
 		}, 200);
 	}
 
+	// Smooth scroll for < > (no date change animation, just pan)
+	let smoothPan = $state(false);
+
 	function shiftView(hours: number) {
-		animateNav(centerHour + hours);
+		// Enable transition class first, then update position on next frame
+		smoothPan = true;
+		requestAnimationFrame(() => {
+			centerHour += hours;
+			setTimeout(() => { smoothPan = false; }, 350);
+		});
 	}
 
 	function goToDate(date: Date) {
-		const todayDate = new Date();
-		todayDate.setHours(0, 0, 0, 0);
+		if (isSameDay(date, selectedDate)) { calendarOpen = false; return; }
 		const target = new Date(date);
 		target.setHours(0, 0, 0, 0);
-		const dayDiff = Math.round((target.getTime() - todayDate.getTime()) / 86400000);
-		const targetCenter = dayDiff * 24 + (currentHourFrac % 24);
+		const currentViewDate = new Date(selectedDate);
+		currentViewDate.setHours(0, 0, 0, 0);
+		const dayDiff = Math.round((target.getTime() - currentViewDate.getTime()) / 86400000);
 		calendarOpen = false;
-		animateNav(targetCenter);
+		animateNav(centerHour + dayDiff * 24);
 	}
 
 	function goToday() {
@@ -425,6 +434,11 @@
 		return getMinuteOffset(tz) / 60;
 	}
 
+	// Cache offset cells per timezone (only changes when timezones change, not on drag)
+	let cachedOffsetCells = $derived(
+		new Map(selectedTimezones.map(e => [e.id, getOffsetCells(e.id)]))
+	);
+
 	function formatTimeWithSeconds(tz: string): string {
 		return new Intl.DateTimeFormat('en-US', {
 			timeZone: tz,
@@ -519,7 +533,7 @@
 	<title>Timezone</title>
 </svelte:head>
 
-<div class="min-h-screen bg-background text-foreground flex flex-col">
+<div class="min-h-screen bg-background text-foreground flex flex-col select-none">
 	<!-- Header -->
 	<div class="flex flex-col items-center pt-8 pb-6 px-4">
 		<div class="flex items-center gap-3 mb-6">
@@ -565,7 +579,7 @@
 						onfocus={() => (searchFocused = true)}
 						type="text"
 						placeholder={selectedTimezones.length === 0 ? 'Search timezones...' : 'Add timezone...'}
-						class="flex-1 min-w-[80px] bg-transparent text-sm text-foreground placeholder:text-muted-foreground outline-none"
+						class="flex-1 min-w-[80px] bg-transparent text-sm text-foreground placeholder:text-muted-foreground outline-none select-text"
 					/>
 				</div>
 
@@ -787,8 +801,8 @@
 									class="flex-1 relative overflow-hidden cells-area select-none {navCellsAnimation}"
 								>
 									<div
-										class="relative flex"
-										style="transform: translateX({stripTranslateX + getOffsetCells(entry.id) * cellWidth}px)"
+										class="relative flex will-change-transform {smoothPan ? 'transition-transform duration-300 ease-in-out' : ''}"
+										style="transform: translateX({stripTranslateX + (cachedOffsetCells.get(entry.id) ?? 0) * cellWidth}px)"
 									>
 										<!-- Daylight arc SVG -->
 										<svg
