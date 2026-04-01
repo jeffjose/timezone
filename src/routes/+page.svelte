@@ -12,7 +12,8 @@
 		type TimezoneInfo,
 		type SearchResult,
 	} from '$lib/timezones';
-	import { X, ChevronUp, ChevronDown, Search, Globe, ChevronLeft, ChevronRight, CalendarDays, Plus } from '@lucide/svelte';
+	import { X, ChevronUp, ChevronDown, Search, Globe, ChevronLeft, ChevronRight, CalendarDays, Plus, EllipsisVertical, Trash2, Copy } from '@lucide/svelte';
+	import { DropdownMenu } from 'bits-ui';
 
 	interface SelectedTz {
 		id: string;
@@ -110,6 +111,7 @@
 	// Interval edge editing
 	let editingMarkerId: number | null = $state(null); // marker in edge-edit mode
 	let draggingEdge: 'start' | 'end' | null = $state(null); // which edge is being dragged
+	let markerMenuId: number | null = $state(null); // marker with open menu
 
 	// Derived
 	let showDropdown = $derived(searchFocused && query.length > 0 && (searchResults.length > 0 || isSearchingRemote));
@@ -866,6 +868,24 @@ function handleMarkerLineClick(e: MouseEvent, markerId: number) {
 		markerDragStartUtcHour = edge === 'start' ? (marker?.utcHour ?? 0) : (marker?.utcHourEnd ?? 0);
 	}
 
+	function duplicateMarker(markerId: number) {
+		const marker = markers.find(m => m.id === markerId);
+		if (!marker) return;
+		const id = nextMarkerId++;
+		const color = MARKER_COLORS[markers.length % MARKER_COLORS.length];
+		// Offset by 1 hour so it's visible
+		markers = [...markers, {
+			id,
+			utcHour: marker.utcHour + 1,
+			utcHourEnd: marker.utcHourEnd !== null ? marker.utcHourEnd + 1 : null,
+			label: '',
+			color,
+		}];
+		markerMenuId = null;
+		selectedMarkerId = id;
+		updateUrl();
+	}
+
 	// --- Create strip (area above grid for creating markers/intervals) ---
 	function getCreateStripPercent(e: MouseEvent): number {
 		const strip = (e.currentTarget as HTMLElement).querySelector('.marker-create-strip')
@@ -1133,10 +1153,10 @@ function handleMarkerLineClick(e: MouseEvent, markerId: number) {
 								{@const isEditing = editingMarkerId === marker.id && marker.isInterval}
 								<!-- svelte-ignore a11y_no_static_element_interactions -->
 								<div
-									class="marker-label absolute top-0 -translate-x-1/2 text-[10px] font-medium whitespace-nowrap select-none px-1 py-0.5 rounded z-30
+									class="marker-label group/marker absolute top-0 -translate-x-1/2 text-[10px] font-medium whitespace-nowrap select-none px-1 py-0.5 rounded z-30
 										{isEditing ? 'ring-1 ring-offset-1' : 'cursor-grab active:cursor-grabbing'}"
 									style="left: {marker.isInterval ? (marker.leftPct + marker.rightPct) / 2 : marker.percent}%; color: {marker.color}; background: {marker.color}15; {isEditing ? `ring-color: ${marker.color}` : ''}"
-									onmousedown={(e) => { if (!isEditing) { e.stopPropagation(); handleMarkerDragStart(e, marker.id); } }}
+									onmousedown={(e) => { if (!isEditing && !(e.target as HTMLElement).closest('.marker-menu-trigger')) { e.stopPropagation(); handleMarkerDragStart(e, marker.id); } }}
 									ondblclick={(e) => handleMarkerDblClick(e, marker.id)}
 								>
 									{#if refTzId}
@@ -1146,6 +1166,49 @@ function handleMarkerLineClick(e: MouseEvent, markerId: number) {
 											{formatMarkerTime(marker.utcHour, refTzId)}
 										{/if}
 									{/if}
+
+									<!-- Ellipsis menu (absolute so it doesn't affect centering) -->
+									<DropdownMenu.Root bind:open={
+										() => markerMenuId === marker.id,
+										(v) => { markerMenuId = v ? marker.id : null; }
+									}>
+										<DropdownMenu.Trigger
+											class="marker-menu-trigger absolute -right-4 top-1/2 -translate-y-1/2 p-0.5 rounded opacity-0 group-hover/marker:opacity-100 transition-opacity hover:bg-black/10
+												{markerMenuId === marker.id ? '!opacity-100' : ''}"
+											onclick={(e: MouseEvent) => e.stopPropagation()}
+											onmousedown={(e: MouseEvent) => e.stopPropagation()}
+										>
+											<EllipsisVertical class="h-3 w-3" />
+										</DropdownMenu.Trigger>
+										<DropdownMenu.Portal>
+											<DropdownMenu.Content class="z-50 rounded-md border border-border bg-popover shadow-md py-1 min-w-[130px] text-xs" sideOffset={4}>
+												{#if marker.isInterval}
+													<DropdownMenu.Item
+														class="flex items-center gap-2 px-3 py-1.5 text-popover-foreground hover:bg-accent transition-colors cursor-pointer outline-none data-[highlighted]:bg-accent"
+														onSelect={() => { editingMarkerId = editingMarkerId === marker.id ? null : marker.id; }}
+													>
+														<span class="text-muted-foreground text-xs">↔</span>
+														Resize
+													</DropdownMenu.Item>
+												{/if}
+												<DropdownMenu.Item
+													class="flex items-center gap-2 px-3 py-1.5 text-popover-foreground hover:bg-accent transition-colors cursor-pointer outline-none data-[highlighted]:bg-accent"
+													onSelect={() => duplicateMarker(marker.id)}
+												>
+													<Copy class="h-3 w-3 text-muted-foreground" />
+													Duplicate
+												</DropdownMenu.Item>
+												<DropdownMenu.Separator class="my-1 h-px bg-border" />
+												<DropdownMenu.Item
+													class="flex items-center gap-2 px-3 py-1.5 text-destructive hover:bg-destructive/10 transition-colors cursor-pointer outline-none data-[highlighted]:bg-destructive/10"
+													onSelect={() => removeMarker(marker.id)}
+												>
+													<Trash2 class="h-3 w-3" />
+													Delete
+												</DropdownMenu.Item>
+											</DropdownMenu.Content>
+										</DropdownMenu.Portal>
+									</DropdownMenu.Root>
 								</div>
 
 								<!-- Edge handles when in edit mode -->
@@ -1457,40 +1520,6 @@ function handleMarkerLineClick(e: MouseEvent, markerId: number) {
 						{/each}
 					</div>
 				</div>
-				<!-- Marker list -->
-				{#if markers.length > 0}
-					<div class="mt-3 flex flex-wrap gap-2">
-						{#each markers as marker}
-							<!-- svelte-ignore a11y_no_static_element_interactions -->
-							<div
-								class="inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-xs font-medium transition-colors cursor-pointer
-									{selectedMarkerId === marker.id ? 'ring-1 ring-foreground/30' : ''}"
-								style="background: {marker.color}15; color: {marker.color}"
-								onclick={() => selectedMarkerId = selectedMarkerId === marker.id ? null : marker.id}
-								onkeydown={(e) => { if (e.key === 'Enter') selectedMarkerId = selectedMarkerId === marker.id ? null : marker.id; }}
-								role="button"
-								tabindex="0"
-							>
-								<span class="w-2 h-2 rounded-full shrink-0" style="background: {marker.color}"></span>
-								{#if refTzId}
-									{#if marker.utcHourEnd !== null}
-										{formatMarkerTime(Math.min(marker.utcHour, marker.utcHourEnd), refTzId)} – {formatMarkerTime(Math.max(marker.utcHour, marker.utcHourEnd), refTzId)}
-									{:else}
-										{formatMarkerTime(marker.utcHour, refTzId)}
-									{/if}
-									<span class="text-muted-foreground">{getCityName(refTzId)}</span>
-								{/if}
-								<button
-									type="button"
-									onclick={(e) => { e.stopPropagation(); removeMarker(marker.id); }}
-									class="ml-0.5 hover:opacity-100 opacity-60 transition-opacity"
-								>
-									<X class="h-3 w-3" />
-								</button>
-							</div>
-						{/each}
-					</div>
-				{/if}
 			</div>
 		</div>
 	{:else}
