@@ -249,14 +249,17 @@
 		return d;
 	}
 
-	function getHourForTimezone(tz: string, hour: number): { displayHour: number; period: string; isCurrentHour: boolean; dayOffset: number } {
+	function getHourForTimezone(tz: string, hour: number): { displayHour: number; minutes: number; period: string; isCurrentHour: boolean; dayOffset: number } {
 		const base = getBaseDate();
 		const offsetMinutes = getTimezoneOffset(tz, base);
 		const refOffset = getTimezoneOffset(refTzId, base);
-		const refDiff = offsetMinutes - refOffset;
+		const refDiffMinutes = offsetMinutes - refOffset;
 
-		const tzHour = ((hour + Math.round(refDiff / 60)) % 24 + 24) % 24;
-		const dayOffset = Math.floor((hour + Math.round(refDiff / 60)) / 24);
+		// Total minutes from start of ref day in the target timezone
+		const totalMinutes = hour * 60 + refDiffMinutes;
+		const tzHour = (((Math.floor(totalMinutes / 60)) % 24) + 24) % 24;
+		const minutes = ((totalMinutes % 60) + 60) % 60;
+		const dayOffset = Math.floor(totalMinutes / (24 * 60));
 
 		let isCurrentHour = false;
 		if (isToday) {
@@ -267,7 +270,7 @@
 		const displayHour = tzHour % 12 || 12;
 		const period = tzHour < 12 ? 'AM' : 'PM';
 
-		return { displayHour, period, isCurrentHour, dayOffset };
+		return { displayHour, minutes, period, isCurrentHour, dayOffset };
 	}
 
 	function getNowLinePercent(): number {
@@ -280,8 +283,9 @@
 		const base = getBaseDate();
 		const offsetMinutes = getTimezoneOffset(tz, base);
 		const refOffset = getTimezoneOffset(refTzId, base);
-		const refDiff = offsetMinutes - refOffset;
-		return ((hour + Math.round(refDiff / 60)) % 24 + 24) % 24;
+		const refDiffMinutes = offsetMinutes - refOffset;
+		const totalMinutes = hour * 60 + refDiffMinutes;
+		return (((Math.floor(totalMinutes / 60)) % 24) + 24) % 24;
 	}
 
 	function getDaylightPath(tz: string): string {
@@ -709,7 +713,7 @@
 															: actualHour >= 22 || actualHour < 6
 																? 'text-muted-foreground'
 																: 'text-foreground/70'}">
-													{tzHour.displayHour}{tzHour.period[0].toLowerCase()}
+													{tzHour.displayHour}{#if tzHour.minutes > 0}:{String(tzHour.minutes).padStart(2, '0')}{/if}{tzHour.period[0].toLowerCase()}
 												</span>
 												{#if tzHour.dayOffset !== 0}
 													<span class="absolute top-0.5 right-0.5 text-[9px] font-medium text-muted-foreground">
