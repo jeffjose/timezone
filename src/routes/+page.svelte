@@ -38,8 +38,9 @@
 	let calendarOpen = $state(false);
 
 	// Carousel state
-	// centerHour = the ref timezone hour at the center of the viewport
-	// It's relative to "today midnight" in the ref tz: e.g., 19.5 = 7:30pm today, 43 = 7pm tomorrow
+	// centerHour = UTC fractional hours since UTC midnight today
+	// All internal positioning uses UTC. Each timezone row shifts its strip
+	// by its UTC offset so local hour boundaries align correctly.
 	let centerHour = $state(0);
 	let isDragging = $state(false);
 	let isDraggingNav = $state(false);
@@ -54,36 +55,35 @@
 	let refTzId = $derived(selectedTimezones[0]?.id);
 	let cellWidth = $derived(containerWidth / 24);
 
-	// The range of hours to render: 264 hours (11 days)
-	// renderAnchor only updates when centerHour drifts far from it (avoids re-rendering cells on every drag frame)
+	// The range of UTC hours to render: 264 hours (11 days)
 	const BUFFER = 120;
 	const TOTAL_CELLS = 24 + 2 * BUFFER; // 264
 	let renderAnchor = $state(0);
 	let renderStart = $derived(renderAnchor - BUFFER - 12);
 	let renderHours = $derived(Array.from({ length: TOTAL_CELLS }, (_, i) => renderStart + i));
 
-	// Re-anchor when centerHour drifts far enough — only when no transition is in flight
+	// Re-anchor when centerHour drifts far enough — only when idle
 	$effect(() => {
 		const drift = Math.abs(centerHour - renderAnchor);
-		if (drift > 96 && !smoothPan) {
+		if (drift > 96 && !smoothPan && !isDragging && !isDraggingNav) {
 			renderAnchor = Math.floor(centerHour);
 		}
 	});
 
-	// translateX to position the strip so centerHour is at viewport center
+	// Base translateX in UTC space — positions the strip so centerHour is at viewport center
 	let stripTranslateX = $derived((() => {
 		const centerPosInStrip = (centerHour - renderStart) * cellWidth;
 		return containerWidth / 2 - centerPosInStrip;
 	})());
 
-	// Current fractional hour in ref tz (for now-line)
+
+	// Current UTC fractional hour (for now-line)
 	let currentHourFrac = $derived((() => {
-		if (!refTzId) return 0;
-		const refNow = new Date(now.toLocaleString('en-US', { timeZone: refTzId }));
-		return refNow.getHours() + refNow.getMinutes() / 60 + refNow.getSeconds() / 3600;
+		const n = now;
+		return n.getUTCHours() + n.getUTCMinutes() / 60 + n.getUTCSeconds() / 3600;
 	})());
 
-	// Now-line position as pixels from left of cells-area
+	// Now-line position — in UTC space, same for all rows
 	let nowLineScreenX = $derived((() => {
 		const nowPosInStrip = (currentHourFrac - renderStart) * cellWidth;
 		return nowPosInStrip + stripTranslateX;
@@ -91,8 +91,12 @@
 	let nowLinePercent = $derived((nowLineScreenX / containerWidth) * 100);
 	let nowLineVisible = $derived(nowLinePercent >= 0 && nowLinePercent <= 100);
 
-	// selectedDate follows the center of the viewport
-	let viewDayOffset = $derived(Math.floor(centerHour / 24));
+	// selectedDate follows the center of the viewport, in ref tz local time
+	let viewDayOffset = $derived((() => {
+		if (!refTzId) return 0;
+		const refOffsetHours = getTimezoneOffset(refTzId, offsetBase) / 60;
+		return Math.floor((centerHour + refOffsetHours) / 24);
+	})());
 	let selectedDate = $derived((() => {
 		const d = new Date();
 		d.setDate(d.getDate() + viewDayOffset);
@@ -105,20 +109,35 @@
 		new CalendarDate(selectedDate.getFullYear(), selectedDate.getMonth() + 1, selectedDate.getDate())
 	);
 
-	// Date carousel: render 61 day pills centered on today, driven by centerHour
+	// Date carousel: 61 pills with reanchoring (like the grid)
 	const NAV_DAYS_COUNT = 61;
 	const NAV_DAYS_HALF = 30;
+	let navAnchorDay = $state(0); // day offset from today that the nav is centered on
 	let navPillWidth = $derived(navContainerWidth / 7); // 7 pills visible
 	let navDays = $derived(Array.from({ length: NAV_DAYS_COUNT }, (_, i) => {
 		const d = new Date();
 		d.setHours(0, 0, 0, 0);
-		d.setDate(d.getDate() + (i - NAV_DAYS_HALF));
+		d.setDate(d.getDate() + navAnchorDay + (i - NAV_DAYS_HALF));
 		return d;
 	}));
-	// translateX for date strip: centerHour/24 maps to pill offset from day 0 (today)
+
+	// Reanchor nav when we drift >20 days from the anchor
+	$effect(() => {
+		const currentDay = viewDayOffset;
+		const drift = Math.abs(currentDay - navAnchorDay);
+		if (drift > 20 && !smoothPan && !isDragging && !isDraggingNav) {
+			navAnchorDay = currentDay;
+		}
+	});
+
+	// translateX for date strip — uses viewDayOffset (ref tz local days)
 	let navStripTranslateX = $derived((() => {
-		const centerDayFrac = centerHour / 24; // fractional day offset from today
-		const centerPillPos = (centerDayFrac + NAV_DAYS_HALF) * navPillWidth;
+		if (!refTzId) return 0;
+		const refOffsetHours = getTimezoneOffset(refTzId, offsetBase) / 60;
+		const localHourFrac = centerHour + refOffsetHours;
+		const centerDayFrac = localHourFrac / 24;
+		const pillIndexFromStart = centerDayFrac - navAnchorDay + NAV_DAYS_HALF;
+		const centerPillPos = pillIndexFromStart * navPillWidth;
 		return navContainerWidth / 2 - centerPillPos;
 	})());
 
@@ -130,12 +149,17 @@
 
 	// Smooth pan: shared by both carousels for < > and goToDate
 	let smoothPan = $state(false);
+	let smoothPanTimer: ReturnType<typeof setTimeout> | null = null;
 
 	function smoothNavigate(targetCenter: number) {
+		if (smoothPanTimer) clearTimeout(smoothPanTimer);
 		smoothPan = true;
 		requestAnimationFrame(() => {
 			centerHour = targetCenter;
-			setTimeout(() => { smoothPan = false; }, 350);
+			smoothPanTimer = setTimeout(() => {
+				smoothPan = false;
+				smoothPanTimer = null;
+			}, 350);
 		});
 	}
 
@@ -211,12 +235,9 @@
 			selectedTimezones = [{ id: localTz, label: getCityName(localTz) }];
 		}
 
-		// Center on current time
-		if (refTzId) {
-			const refNow = new Date(now.toLocaleString('en-US', { timeZone: refTzId }));
-			centerHour = refNow.getHours() + refNow.getMinutes() / 60;
-			renderAnchor = Math.floor(centerHour);
-		}
+		// Center on current UTC time
+		centerHour = now.getUTCHours() + now.getUTCMinutes() / 60;
+		renderAnchor = Math.floor(centerHour);
 
 		// Measure containers after DOM renders
 		let ro: ResizeObserver | undefined;
@@ -355,48 +376,61 @@
 		}
 	}
 
-	function getBaseDate(): Date {
-		return now;
+	// Stable date for offset calculations — NOT reactive to `now`.
+	// Only needs to reflect the day we're viewing (DST boundaries).
+	// Updated rarely: on mount + when selectedDate changes.
+	let offsetBase = new Date();
+	$effect(() => {
+		// Re-derive when the viewed day changes (for DST correctness)
+		void selectedDate;
+		offsetBase = new Date(selectedDate);
+	});
+
+	// The UTC cell that the now-line falls in, per timezone.
+	// For :30 timezones, the strip shift means the visually-correct cell
+	// is floor(currentHourFrac - fracOffset).
+	let cachedNowCell = $derived(
+		new Map(selectedTimezones.map(e => {
+			const frac = cachedFractionalOffsets.get(e.id) ?? 0;
+			return [e.id, Math.floor(currentHourFrac - frac)];
+		}))
+	);
+
+	// Cell = UTC hour. All rows share the same grid (no per-row strip shift).
+	// Label shows local time at that UTC hour.
+	// Per-timezone fractional cell offset for :30/:45 timezones
+	// Shifts the strip so cell boundaries align with local hour boundaries
+	function getFractionalOffset(tz: string): number {
+		const offsetMinutes = getTimezoneOffset(tz, offsetBase);
+		return ((offsetMinutes % 60) + 60) % 60 / 60;
 	}
+	let cachedFractionalOffsets = $derived(
+		new Map(selectedTimezones.map(e => [e.id, getFractionalOffset(e.id)]))
+	);
 
-	function getHourForTimezone(tz: string, hour: number): { displayHour: number; minutes: number; period: string; isCurrentHour: boolean; dayOffset: number } {
-		const base = getBaseDate();
-		const offsetMinutes = getTimezoneOffset(tz, base);
-		const refOffset = getTimezoneOffset(refTzId, base);
-		const refDiffMinutes = offsetMinutes - refOffset;
+	function getHourForTimezone(tz: string, utcHour: number): { displayHour: number; period: string; dayOffset: number } {
+		const offsetMinutes = getTimezoneOffset(tz, offsetBase);
+		const localTotalMinutes = utcHour * 60 + offsetMinutes;
+		const localHour = (((Math.floor(localTotalMinutes / 60)) % 24) + 24) % 24;
+		const minutes = ((localTotalMinutes % 60) + 60) % 60;
+		const dayOffset = Math.floor(localTotalMinutes / (24 * 60));
 
-		const totalMinutes = hour * 60 + refDiffMinutes;
-		const tzHour = (((Math.floor(totalMinutes / 60)) % 24) + 24) % 24;
-		const minutes = ((totalMinutes % 60) + 60) % 60;
-		const dayOffset = Math.floor(totalMinutes / (24 * 60));
-
-		// All cells at the same ref hour represent the same moment in time
-		const isCurrentHour = hour === Math.floor(currentHourFrac);
-
-		// For :30/:45 offsets, the cell is shifted right so its visual center
-		// is at (tzHour + minutes/60). Round to nearest hour for the label.
-		const labelHour = minutes >= 30 ? (tzHour + 1) % 24 : tzHour;
+		// For :30/:45 offsets, strip is shifted so cell centers align with local hours.
+		// Round label to the hour at the cell center.
+		const labelHour = minutes >= 30 ? (localHour + 1) % 24 : localHour;
 		const displayHour = labelHour % 12 || 12;
 		const period = labelHour < 12 ? 'AM' : 'PM';
 
-		return { displayHour, minutes, period, isCurrentHour, dayOffset };
+		return { displayHour, period, dayOffset };
 	}
 
-	function getTzHourValue(tz: string, hour: number): number {
-		const base = getBaseDate();
-		const offsetMinutes = getTimezoneOffset(tz, base);
-		const refOffset = getTimezoneOffset(refTzId, base);
-		const refDiffMinutes = offsetMinutes - refOffset;
-		const totalMinutes = hour * 60 + refDiffMinutes;
-		return (((Math.floor(totalMinutes / 60)) % 24) + 24) % 24;
-	}
-
-	function getMinuteOffset(tz: string): number {
-		const base = getBaseDate();
-		const offsetMinutes = getTimezoneOffset(tz, base);
-		const refOffset = getTimezoneOffset(refTzId, base);
-		const diffMinutes = offsetMinutes - refOffset;
-		return ((diffMinutes % 60) + 60) % 60;
+	function getTzHourValue(tz: string, utcHour: number): number {
+		const offsetMinutes = getTimezoneOffset(tz, offsetBase);
+		const localTotalMinutes = utcHour * 60 + offsetMinutes;
+		const localHour = (((Math.floor(localTotalMinutes / 60)) % 24) + 24) % 24;
+		const minutes = ((localTotalMinutes % 60) + 60) % 60;
+		// Round to the hour at the cell center (matches label for :30/:45 timezones)
+		return minutes >= 30 ? (localHour + 1) % 24 : localHour;
 	}
 
 	// Daylight arc SVG path spanning all rendered cells
@@ -432,13 +466,9 @@
 		return d;
 	}
 
-	function getOffsetCells(tz: string): number {
-		return getMinuteOffset(tz) / 60;
-	}
-
-	// Cache offset cells per timezone (only changes when timezones change, not on drag)
-	let cachedOffsetCells = $derived(
-		new Map(selectedTimezones.map(e => [e.id, getOffsetCells(e.id)]))
+	// Cache daylight paths — only recompute when renderAnchor or timezones change, not on drag
+	let cachedDaylightPaths = $derived(
+		new Map(selectedTimezones.map(e => [e.id, getDaylightPath(e.id)]))
 	);
 
 	function formatTimeWithSeconds(tz: string): string {
@@ -457,17 +487,15 @@
 	}
 
 	function getHoveredTime(tz: string, screenPercent: number): { time: string; date: string } {
-		// Convert screen percent to ref timezone hour
+		// Convert screen percent to UTC hour, accounting for fractional strip offset
+		const fracOffset = cachedFractionalOffsets.get(tz) ?? 0;
 		const screenX = (screenPercent / 100) * containerWidth;
-		const refHour = (screenX - stripTranslateX) / cellWidth + renderStart;
+		const utcHour = (screenX - stripTranslateX - fracOffset * cellWidth) / cellWidth + renderStart;
 
-		const base = getBaseDate();
-		const offsetMinutes = getTimezoneOffset(tz, base);
-		const refOffset = getTimezoneOffset(refTzId, base);
-		const refDiffMinutes = offsetMinutes - refOffset;
-		const totalMinutes = refHour * 60 + refDiffMinutes;
-		const dayOffset = Math.floor(totalMinutes / (24 * 60));
-		const minuteInDay = ((totalMinutes % (24 * 60)) + 24 * 60) % (24 * 60);
+		const offsetMinutes = getTimezoneOffset(tz, offsetBase);
+		const localTotalMinutes = utcHour * 60 + offsetMinutes;
+		const dayOffset = Math.floor(localTotalMinutes / (24 * 60));
+		const minuteInDay = ((localTotalMinutes % (24 * 60)) + 24 * 60) % (24 * 60);
 		const h = Math.floor(minuteInDay / 60);
 		const m = Math.round(minuteInDay % 60);
 		const displayHour = h % 12 || 12;
@@ -818,7 +846,7 @@
 								>
 									<div
 										class="relative flex will-change-transform {smoothPan ? 'transition-transform duration-300 ease-in-out' : ''}"
-										style="transform: translateX({stripTranslateX + (cachedOffsetCells.get(entry.id) ?? 0) * cellWidth}px)"
+										style="transform: translateX({stripTranslateX + (cachedFractionalOffsets.get(entry.id) ?? 0) * cellWidth}px)"
 									>
 										<!-- Daylight arc SVG -->
 										<svg
@@ -828,7 +856,7 @@
 											preserveAspectRatio="none"
 										>
 											<path
-												d={getDaylightPath(entry.id)}
+												d={cachedDaylightPaths.get(entry.id) ?? ''}
 												fill="url(#daylight-{rowIndex})"
 												stroke="rgba(255,255,255,0.15)"
 												stroke-width="0.4"
@@ -841,10 +869,10 @@
 												</linearGradient>
 											</defs>
 										</svg>
-										{#each renderHours as hour}
+										{#each renderHours as hour (hour)}
 											{@const tzHour = getHourForTimezone(entry.id, hour)}
 											{@const actualHour = getTzHourValue(entry.id, hour)}
-											{@const isNow = tzHour.isCurrentHour}
+											{@const isNow = hour === (cachedNowCell.get(entry.id) ?? -1)}
 											{@const isMidnight = actualHour === 0}
 											<div
 												class="h-10 flex items-center justify-center relative shrink-0 z-10
