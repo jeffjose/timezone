@@ -96,6 +96,26 @@ export function getCurrentHourInTimezone(tz: string): number {
 	return parseInt(formatter.format(new Date()));
 }
 
+// Map IANA timezone ID to a friendly country/region name
+function getCountryForTz(tzId: string): string {
+	const region = tzId.split('/')[0];
+	const city = tzId.split('/').pop() || '';
+	// Well-known mappings
+	const regionMap: Record<string, string> = {
+		'America': 'Americas',
+		'Europe': 'Europe',
+		'Asia': 'Asia',
+		'Africa': 'Africa',
+		'Pacific': 'Pacific',
+		'Australia': 'Australia',
+		'Indian': 'Indian Ocean',
+		'Atlantic': 'Atlantic',
+		'Arctic': 'Arctic',
+		'Antarctica': 'Antarctica',
+	};
+	return regionMap[region] || region;
+}
+
 // Map of cities/places to their IANA timezone
 // This lets users search for cities that aren't in the IANA timezone database directly
 const CITY_TO_TIMEZONE: Record<string, string> = {
@@ -254,9 +274,74 @@ const CITY_TO_TIMEZONE: Record<string, string> = {
 	'amman': 'Asia/Amman',
 };
 
+// Country for hardcoded cities
+const CITY_COUNTRY: Record<string, string> = {
+	'America/Los_Angeles': 'United States',
+	'America/Chicago': 'United States',
+	'America/New_York': 'United States',
+	'America/Denver': 'United States',
+	'America/Boise': 'United States',
+	'Pacific/Honolulu': 'United States',
+	'America/Anchorage': 'United States',
+	'Asia/Kolkata': 'India',
+	'Europe/Paris': 'France',
+	'Europe/Amsterdam': 'Netherlands',
+	'Europe/Berlin': 'Germany',
+	'Europe/Madrid': 'Spain',
+	'Europe/Rome': 'Italy',
+	'Europe/Vienna': 'Austria',
+	'Europe/Zurich': 'Switzerland',
+	'Europe/Dublin': 'Ireland',
+	'Europe/London': 'United Kingdom',
+	'Europe/Brussels': 'Belgium',
+	'Europe/Copenhagen': 'Denmark',
+	'Europe/Oslo': 'Norway',
+	'Europe/Stockholm': 'Sweden',
+	'Europe/Helsinki': 'Finland',
+	'Europe/Prague': 'Czech Republic',
+	'Europe/Warsaw': 'Poland',
+	'Europe/Budapest': 'Hungary',
+	'Europe/Lisbon': 'Portugal',
+	'Europe/Athens': 'Greece',
+	'Asia/Shanghai': 'China',
+	'Asia/Tokyo': 'Japan',
+	'Asia/Seoul': 'South Korea',
+	'Asia/Taipei': 'Taiwan',
+	'Asia/Kuala_Lumpur': 'Malaysia',
+	'Asia/Jakarta': 'Indonesia',
+	'Asia/Bangkok': 'Thailand',
+	'Asia/Ho_Chi_Minh': 'Vietnam',
+	'Asia/Manila': 'Philippines',
+	'Asia/Dubai': 'UAE',
+	'Asia/Qatar': 'Qatar',
+	'Asia/Riyadh': 'Saudi Arabia',
+	'Australia/Melbourne': 'Australia',
+	'Australia/Brisbane': 'Australia',
+	'Australia/Perth': 'Australia',
+	'Australia/Adelaide': 'Australia',
+	'Pacific/Auckland': 'New Zealand',
+	'America/Sao_Paulo': 'Brazil',
+	'America/Argentina/Buenos_Aires': 'Argentina',
+	'America/Lima': 'Peru',
+	'America/Bogota': 'Colombia',
+	'America/Santiago': 'Chile',
+	'Africa/Johannesburg': 'South Africa',
+	'Africa/Lagos': 'Nigeria',
+	'Africa/Nairobi': 'Kenya',
+	'Africa/Casablanca': 'Morocco',
+	'Africa/Accra': 'Ghana',
+	'America/Toronto': 'Canada',
+	'America/Vancouver': 'Canada',
+	'America/Edmonton': 'Canada',
+	'Asia/Jerusalem': 'Israel',
+	'Asia/Beirut': 'Lebanon',
+	'Asia/Amman': 'Jordan',
+};
+
 export interface CityMatch {
 	cityName: string;
 	timezone: TimezoneInfo;
+	country: string;
 }
 
 function searchCityMap(query: string, allTimezones: TimezoneInfo[]): CityMatch[] {
@@ -273,6 +358,7 @@ function searchCityMap(query: string, allTimezones: TimezoneInfo[]): CityMatch[]
 				results.push({
 					cityName: city.split(' ').map((w) => w[0].toUpperCase() + w.slice(1)).join(' '),
 					timezone: tz,
+					country: CITY_COUNTRY[tzId] || getCountryForTz(tzId),
 				});
 			}
 		}
@@ -293,7 +379,7 @@ export function searchTimezones(query: string, allTimezones: TimezoneInfo[]): Se
 	for (const match of cityMatches) {
 		if (!seen.has(match.timezone.id)) {
 			seen.add(match.timezone.id);
-			results.push({ tz: match.timezone, displayName: match.cityName });
+			results.push({ tz: match.timezone, displayName: `${match.cityName}, ${match.country}` });
 		}
 	}
 
@@ -307,7 +393,8 @@ export function searchTimezones(query: string, allTimezones: TimezoneInfo[]): Se
 			getTimezoneAbbr(tz.id).toLowerCase().includes(q)
 		) {
 			seen.add(tz.id);
-			results.push({ tz });
+			const country = CITY_COUNTRY[tz.id] || getCountryForTz(tz.id);
+			results.push({ tz, displayName: `${tz.city}, ${country}` });
 		}
 		if (results.length >= 20) break;
 	}

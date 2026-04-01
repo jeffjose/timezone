@@ -28,6 +28,7 @@
 	let query = $state('');
 	let searchResults: SearchResult[] = $state([]);
 	let remoteSearchTimeout: ReturnType<typeof setTimeout> | null = null;
+	let isSearchingRemote = $state(false);
 	let searchFocused = $state(false);
 	let highlightedIndex = $state(-1);
 	let inputEl: HTMLInputElement | undefined = $state();
@@ -41,7 +42,7 @@
 	let calendarOpen = $state(false);
 
 	// Derived
-	let showDropdown = $derived(searchFocused && query.length > 0 && searchResults.length > 0);
+	let showDropdown = $derived(searchFocused && query.length > 0 && (searchResults.length > 0 || isSearchingRemote));
 	let selectedIds = $derived(selectedTimezones.map((t) => t.id));
 	let refTzId = $derived(selectedTimezones[0]?.id);
 	let isToday = $derived(isSameDay(selectedDate, new Date()));
@@ -159,19 +160,23 @@
 
 	function handleSearch() {
 		if (remoteSearchTimeout) clearTimeout(remoteSearchTimeout);
+		isSearchingRemote = false;
 
 		if (query.trim().length > 0) {
-			// Instant local search
 			const localResults = searchTimezones(query, allTimezones);
 			searchResults = localResults;
 			highlightedIndex = localResults.length > 0 ? 0 : -1;
 
 			// Debounced remote fallback if local results are sparse
 			if (localResults.length < 3 && query.length >= 2) {
+				isSearchingRemote = true;
 				remoteSearchTimeout = setTimeout(async () => {
-					const remoteResults = await searchTimezonesRemote(query, allTimezones);
+					const currentQuery = query;
+					const remoteResults = await searchTimezonesRemote(currentQuery, allTimezones);
+					// Only apply if query hasn't changed
+					if (query !== currentQuery) return;
+					isSearchingRemote = false;
 					if (remoteResults.length > 0) {
-						// Merge: local first, then remote (deduped)
 						const seen = new Set(localResults.map((r) => r.tz.id + (r.displayName || '')));
 						const merged = [...localResults];
 						for (const r of remoteResults) {
@@ -456,19 +461,18 @@
 									? 'bg-accent text-accent-foreground'
 									: 'text-popover-foreground hover:bg-accent/50'}"
 							>
-								<span>
-									<span class="font-medium">{result.displayName || result.tz.city}</span>
-									{#if result.displayName}
-										<span class="text-muted-foreground ml-2">{result.tz.city}</span>
-									{:else}
-										<span class="text-muted-foreground ml-2">{result.tz.region}</span>
-									{/if}
-								</span>
+								<span class="font-medium">{result.displayName || result.tz.city}</span>
 								<span class="text-muted-foreground text-xs">
 									{formatTimeWithSeconds(result.tz.id)} &middot; {getTimezoneAbbr(result.tz.id)}
 								</span>
 							</button>
 						{/each}
+						{#if isSearchingRemote}
+							<div class="px-3 py-2 text-sm text-muted-foreground flex items-center gap-2">
+								<div class="h-3 w-3 border-2 border-muted-foreground/30 border-t-muted-foreground rounded-full animate-spin"></div>
+								Searching more cities...
+							</div>
+						{/if}
 					</div>
 				{/if}
 			</div>
