@@ -108,27 +108,3 @@
 	}
 }
 
-/* Nav crossfade animations - fade out and slide, then fade in from offset */
-@keyframes nav-out-left {
-	0% { opacity: 1; transform: translateX(0); }
-	100% { opacity: 0; transform: translateX(-16px); }
-}
-@keyframes nav-in-left {
-	0% { opacity: 0; transform: translateX(16px); }
-	100% { opacity: 1; transform: translateX(0); }
-}
-@keyframes nav-out-right {
-	0% { opacity: 1; transform: translateX(0); }
-	100% { opacity: 0; transform: translateX(16px); }
-}
-@keyframes nav-in-right {
-	0% { opacity: 0; transform: translateX(-16px); }
-	100% { opacity: 1; transform: translateX(0); }
-}
-
-.nav-slide-left {
-	animation: nav-out-left 100ms ease-in forwards, nav-in-left 100ms ease-out 80ms forwards;
-}
-.nav-slide-right {
-	animation: nav-out-right 100ms ease-in forwards, nav-in-right 100ms ease-out 80ms forwards;
-}

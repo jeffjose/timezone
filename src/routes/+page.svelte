@@ -41,11 +41,12 @@
 	// centerHour = the ref timezone hour at the center of the viewport
 	// It's relative to "today midnight" in the ref tz: e.g., 19.5 = 7:30pm today, 43 = 7pm tomorrow
 	let centerHour = $state(0);
-	let navAnimating = $state(false);
 	let isDragging = $state(false);
+	let isDraggingNav = $state(false);
 	let dragStartX = $state(0);
 	let dragStartCenter = $state(0);
 	let containerWidth = $state(1); // measured on mount
+	let navContainerWidth = $state(1); // measured on mount
 
 	// Derived
 	let showDropdown = $derived(searchFocused && query.length > 0 && (searchResults.length > 0 || isSearchingRemote));
@@ -103,7 +104,23 @@
 	let calendarValue = $derived(
 		new CalendarDate(selectedDate.getFullYear(), selectedDate.getMonth() + 1, selectedDate.getDate())
 	);
-	let navDays = $derived(getNavDays(selectedDate));
+
+	// Date carousel: render 61 day pills centered on today, driven by centerHour
+	const NAV_DAYS_COUNT = 61;
+	const NAV_DAYS_HALF = 30;
+	let navPillWidth = $derived(navContainerWidth / 7); // 7 pills visible
+	let navDays = $derived(Array.from({ length: NAV_DAYS_COUNT }, (_, i) => {
+		const d = new Date();
+		d.setHours(0, 0, 0, 0);
+		d.setDate(d.getDate() + (i - NAV_DAYS_HALF));
+		return d;
+	}));
+	// translateX for date strip: centerHour/24 maps to pill offset from day 0 (today)
+	let navStripTranslateX = $derived((() => {
+		const centerDayFrac = centerHour / 24; // fractional day offset from today
+		const centerPillPos = (centerDayFrac + NAV_DAYS_HALF) * navPillWidth;
+		return navContainerWidth / 2 - centerPillPos;
+	})());
 
 	const localTz = Intl.DateTimeFormat().resolvedOptions().timeZone;
 
@@ -111,87 +128,68 @@
 		return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
 	}
 
-	function getNavDays(centerDate: Date): Date[] {
-		const days: Date[] = [];
-		for (let i = -2; i <= 4; i++) {
-			const d = new Date(centerDate);
-			d.setDate(d.getDate() + i);
-			days.push(d);
-		}
-		return days;
-	}
-
-	// Navigation with crossfade+slide on cells only
-	// Uses CSS animation keyframes for true overlap
-	let navCellsAnimation = $state('');
-
-	function animateNav(targetCenter: number) {
-		if (navAnimating) return;
-		const direction = targetCenter > centerHour ? 'left' : 'right';
-		navAnimating = true;
-
-		// Apply the animation class
-		navCellsAnimation = direction === 'left' ? 'nav-slide-left' : 'nav-slide-right';
-
-		// Update data at the midpoint of the animation
-		setTimeout(() => {
-			centerHour = targetCenter;
-			renderAnchor = Math.floor(targetCenter);
-		}, 80);
-
-		// Clean up after animation completes
-		setTimeout(() => {
-			navCellsAnimation = '';
-			navAnimating = false;
-		}, 200);
-	}
-
-	// Smooth scroll for < > (no date change animation, just pan)
+	// Smooth pan: shared by both carousels for < > and goToDate
 	let smoothPan = $state(false);
 
-	function shiftView(hours: number) {
-		// Enable transition class first, then update position on next frame
+	function smoothNavigate(targetCenter: number) {
 		smoothPan = true;
 		requestAnimationFrame(() => {
-			centerHour += hours;
+			centerHour = targetCenter;
 			setTimeout(() => { smoothPan = false; }, 350);
 		});
+	}
+
+	function shiftView(hours: number) {
+		smoothNavigate(centerHour + hours);
 	}
 
 	function goToDate(date: Date) {
 		if (isSameDay(date, selectedDate)) { calendarOpen = false; return; }
 		const target = new Date(date);
 		target.setHours(0, 0, 0, 0);
-		const currentViewDate = new Date(selectedDate);
-		currentViewDate.setHours(0, 0, 0, 0);
-		const dayDiff = Math.round((target.getTime() - currentViewDate.getTime()) / 86400000);
+		const todayDate = new Date();
+		todayDate.setHours(0, 0, 0, 0);
+		const targetDayOffset = Math.round((target.getTime() - todayDate.getTime()) / 86400000);
+		// Keep the same time-of-day within the target day
+		const hourInDay = ((centerHour % 24) + 24) % 24;
 		calendarOpen = false;
-		animateNav(centerHour + dayDiff * 24);
+		smoothNavigate(targetDayOffset * 24 + hourInDay);
 	}
 
 	function goToday() {
-		animateNav(currentHourFrac);
+		smoothNavigate(currentHourFrac);
 	}
 
-	// Drag to pan
+	// Drag to pan (grid)
 	function handleDragStart(e: MouseEvent) {
 		if ((e.target as HTMLElement).closest('button')) return;
 		isDragging = true;
 		dragStartX = e.clientX;
 		dragStartCenter = centerHour;
+	}
 
+	// Drag to pan (date nav)
+	function handleNavDragStart(e: MouseEvent) {
+		if ((e.target as HTMLElement).closest('button')) return;
+		isDraggingNav = true;
+		dragStartX = e.clientX;
+		dragStartCenter = centerHour;
 	}
 
 	function handleDragMove(e: MouseEvent) {
-		if (!isDragging) return;
-		const dx = e.clientX - dragStartX;
-		// Moving mouse right = seeing earlier hours = centerHour decreases
-		centerHour = dragStartCenter - dx / cellWidth;
+		if (isDragging) {
+			const dx = e.clientX - dragStartX;
+			centerHour = dragStartCenter - dx / cellWidth;
+		} else if (isDraggingNav) {
+			const dx = e.clientX - dragStartX;
+			// 1 pill = 24 hours, so scale by pillWidth/24 = cellWidth equivalent for nav
+			centerHour = dragStartCenter - (dx / navPillWidth) * 24;
+		}
 	}
 
 	function handleDragEnd() {
-		if (!isDragging) return;
 		isDragging = false;
+		isDraggingNav = false;
 	}
 
 	onMount(async () => {
@@ -220,17 +218,21 @@
 			renderAnchor = Math.floor(centerHour);
 		}
 
-		// Measure container after DOM renders
+		// Measure containers after DOM renders
 		let ro: ResizeObserver | undefined;
 		await tick();
 		const measure = () => {
-			const el = document.querySelector('.cells-area');
-			if (el) containerWidth = el.clientWidth;
+			const cellsEl = document.querySelector('.cells-area');
+			if (cellsEl) containerWidth = cellsEl.clientWidth;
+			const navEl = document.querySelector('.nav-carousel-area');
+			if (navEl) navContainerWidth = navEl.clientWidth;
 		};
 		measure();
 		ro = new ResizeObserver(measure);
-		const el = document.querySelector('.cells-area');
-		if (el) ro.observe(el);
+		const cellsEl = document.querySelector('.cells-area');
+		if (cellsEl) ro.observe(cellsEl);
+		const navEl = document.querySelector('.nav-carousel-area');
+		if (navEl) ro.observe(navEl);
 
 		const interval = setInterval(() => {
 			now = new Date();
@@ -514,11 +516,13 @@
 		return { weekday, month, day };
 	}
 
-	function formatNavDay(d: Date): { dayNum: string; weekday: string; isWeekend: boolean } {
+	function formatNavDay(d: Date): { dayNum: string; weekday: string; isWeekend: boolean; isToday: boolean } {
 		const dayNum = String(d.getDate());
 		const weekday = new Intl.DateTimeFormat('en-US', { weekday: 'short' }).format(d);
 		const dow = d.getDay();
-		return { dayNum, weekday, isWeekend: dow === 0 || dow === 6 };
+		const today = new Date();
+		today.setHours(0, 0, 0, 0);
+		return { dayNum, weekday, isWeekend: dow === 0 || dow === 6, isToday: isSameDay(d, today) };
 	}
 </script>
 
@@ -642,27 +646,39 @@
 					</Popover.Content>
 				</Popover.Root>
 
-				<!-- Quick day nav -->
-				{#each navDays as navDay}
-					{@const info = formatNavDay(navDay)}
-					{@const isSelected = isSameDay(navDay, selectedDate)}
-					{@const isDayToday = isSameDay(navDay, new Date())}
-					<button
-						type="button"
-						onclick={() => goToDate(navDay)}
-						class="flex flex-col items-center min-w-[2.25rem] px-1 py-0.5 rounded-md text-xs transition-colors
-							{isSelected
-								? 'bg-primary text-primary-foreground'
-								: isDayToday
-									? 'bg-blue-500/15 text-blue-400 hover:bg-blue-500/25'
-									: info.isWeekend
-										? 'text-muted-foreground/60 hover:bg-accent'
-										: 'text-muted-foreground hover:bg-accent hover:text-foreground'}"
+				<!-- Date carousel (minimap) -->
+				<div
+					class="nav-carousel-area relative overflow-hidden select-none w-64"
+					style="cursor: {isDraggingNav ? 'grabbing' : 'grab'}"
+					onmousedown={handleNavDragStart}
+					role="presentation"
+				>
+					<div
+						class="flex will-change-transform {smoothPan ? 'transition-transform duration-300 ease-in-out' : ''}"
+						style="transform: translateX({navStripTranslateX}px)"
 					>
-						<span class="text-[9px] leading-tight font-medium">{info.weekday}</span>
-						<span class="text-sm font-semibold leading-tight">{info.dayNum}</span>
-					</button>
-				{/each}
+						{#each navDays as navDay}
+							{@const info = formatNavDay(navDay)}
+							{@const isSelected = isSameDay(navDay, selectedDate)}
+							<button
+								type="button"
+								onclick={() => goToDate(navDay)}
+								class="flex flex-col items-center shrink-0 py-0.5 rounded-md text-xs transition-colors
+									{isSelected
+										? 'bg-primary text-primary-foreground'
+										: info.isToday
+											? 'bg-blue-500/15 text-blue-400 hover:bg-blue-500/25'
+											: info.isWeekend
+												? 'text-muted-foreground/60 hover:bg-accent'
+												: 'text-muted-foreground hover:bg-accent hover:text-foreground'}"
+								style="width: {navPillWidth}px"
+							>
+								<span class="text-[9px] leading-tight font-medium">{info.weekday}</span>
+								<span class="text-sm font-semibold leading-tight">{info.dayNum}</span>
+							</button>
+						{/each}
+					</div>
+				</div>
 
 				<button
 					type="button"
@@ -798,7 +814,7 @@
 								<!-- Hour cells - infinite carousel -->
 								<!-- svelte-ignore binding_property_non_reactive -->
 								<div
-									class="flex-1 relative overflow-hidden cells-area select-none {navCellsAnimation}"
+									class="flex-1 relative overflow-hidden cells-area select-none"
 								>
 									<div
 										class="relative flex will-change-transform {smoothPan ? 'transition-transform duration-300 ease-in-out' : ''}"
