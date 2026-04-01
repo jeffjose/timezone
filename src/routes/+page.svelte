@@ -21,7 +21,8 @@
 
 	interface Marker {
 		id: number;
-		utcHour: number; // fractional UTC hour (same coordinate system as centerHour)
+		utcHour: number; // fractional UTC hour (start for intervals)
+		utcHourEnd: number | null; // null = point marker, number = interval end
 		label: string;
 		color: string;
 	}
@@ -58,10 +59,13 @@
 		const mParam = $page.url.searchParams.get('m');
 		if (!mParam) return [];
 		return mParam.split(',').map((s, i) => {
-			const utcHour = parseFloat(s);
+			const parts = s.split('~');
+			const utcHour = parseFloat(parts[0]);
 			if (isNaN(utcHour)) return null;
+			const utcHourEnd = parts[1] ? parseFloat(parts[1]) : null;
+			if (utcHourEnd !== null && isNaN(utcHourEnd)) return null;
 			const id = nextMarkerId++;
-			return { id, utcHour, label: '', color: MARKER_COLORS[i % MARKER_COLORS.length] };
+			return { id, utcHour, utcHourEnd, label: '', color: MARKER_COLORS[i % MARKER_COLORS.length] };
 		}).filter((m): m is Marker => m !== null).slice(0, 5);
 	}
 
@@ -94,6 +98,15 @@
 	let markers: Marker[] = $state(getInitialMarkers());
 	let selectedMarkerId: number | null = $state(null);
 	let dragDidMove = $state(false); // distinguish click from drag
+	let isDraggingMarker = $state(false);
+	let draggingMarkerId: number | null = $state(null);
+	let markerDragStartX = $state(0);
+	let markerDragStartUtcHour = $state(0);
+	// Interval creation via create strip
+	let isCreatingInterval = $state(false);
+	let createIntervalStart: number | null = $state(null); // UTC hour
+	let createIntervalCurrentPct = $state(0); // screen percent for preview
+	let createStripHoverPct: number | null = $state(null); // hover position
 
 	// Derived
 	let showDropdown = $derived(searchFocused && query.length > 0 && (searchResults.length > 0 || isSearchingRemote));
@@ -228,6 +241,8 @@
 	// Drag to pan (grid)
 	function handleDragStart(e: MouseEvent) {
 		if ((e.target as HTMLElement).closest('button')) return;
+		if ((e.target as HTMLElement).closest('.marker-line')) return;
+		if ((e.target as HTMLElement).closest('.marker-label')) return;
 		isDragging = true;
 		dragDidMove = false;
 		dragStartX = e.clientX;
@@ -243,6 +258,19 @@
 	}
 
 	function handleDragMove(e: MouseEvent) {
+		if (isDraggingMarker) {
+			handleMarkerDragMove(e);
+			return;
+		}
+		if (isCreatingInterval) {
+			// Update preview even when mouse moves outside the strip
+			const strip = document.querySelector('.marker-create-strip');
+			if (strip) {
+				const rect = strip.getBoundingClientRect();
+				createIntervalCurrentPct = Math.max(0, Math.min(100, ((e.clientX - rect.left) / rect.width) * 100));
+			}
+			return;
+		}
 		if (isDragging) {
 			const dx = e.clientX - dragStartX;
 			if (Math.abs(dx) > 3) dragDidMove = true;
@@ -254,7 +282,15 @@
 		}
 	}
 
-	function handleDragEnd() {
+	function handleDragEnd(e: MouseEvent) {
+		if (isDraggingMarker) {
+			handleMarkerDragEnd();
+			return;
+		}
+		if (isCreatingInterval) {
+			handleCreateStripMouseUp(e);
+			return;
+		}
 		isDragging = false;
 		isDraggingNav = false;
 	}
@@ -266,8 +302,6 @@
 		dragDidMove = false;
 		dragStartX = e.touches[0].clientX;
 		dragStartCenter = centerHour;
-		lastTouchX = e.touches[0].clientX;
-		lastTouchTarget = e.target;
 	}
 
 	function handleNavTouchStart(e: TouchEvent) {
@@ -291,23 +325,7 @@
 		}
 	}
 
-	let lastTouchX = $state(0);
-	let lastTouchTarget: EventTarget | null = $state(null);
-
 	function handleTouchEnd(e: TouchEvent) {
-		if (!dragDidMove && isDragging && lastTouchTarget) {
-			// Tap (not drag) on grid — place marker
-			const container = (lastTouchTarget as HTMLElement).closest('[data-grid]');
-			if (container) {
-				const cellsEl = container.querySelector('.cells-area');
-				if (cellsEl) {
-					const rect = cellsEl.getBoundingClientRect();
-					const percent = Math.max(0, Math.min(100, ((lastTouchX - rect.left) / rect.width) * 100));
-					const utcHour = screenPercentToUtcHour(percent);
-					addMarker(utcHour);
-				}
-			}
-		}
 		isDragging = false;
 		isDraggingNav = false;
 	}
@@ -383,8 +401,11 @@
 		const url = new URL(window.location.href);
 		url.searchParams.set('tz', selectedIds.join(','));
 		if (markers.length > 0) {
-			// Store as comma-separated UTC hours rounded to 2 decimals
-			url.searchParams.set('m', markers.map(m => m.utcHour.toFixed(2)).join(','));
+			url.searchParams.set('m', markers.map(m =>
+				m.utcHourEnd !== null
+					? `${m.utcHour.toFixed(2)}~${m.utcHourEnd.toFixed(2)}`
+					: m.utcHour.toFixed(2)
+			).join(','));
 		} else {
 			url.searchParams.delete('m');
 		}
@@ -716,7 +737,12 @@
 	let markerPositions = $derived(
 		markers.map(m => {
 			const pct = markerScreenPercent(m.utcHour);
-			return { ...m, percent: pct, visible: pct >= -1 && pct <= 101 };
+			const pctEnd = m.utcHourEnd !== null ? markerScreenPercent(m.utcHourEnd) : null;
+			const isInterval = pctEnd !== null;
+			const leftPct = isInterval ? Math.min(pct, pctEnd!) : pct;
+			const rightPct = isInterval ? Math.max(pct, pctEnd!) : pct;
+			const visible = rightPct >= -1 && leftPct <= 101;
+			return { ...m, percent: pct, percentEnd: pctEnd, leftPct, rightPct, isInterval, visible };
 		})
 	);
 
@@ -739,10 +765,9 @@
 	}
 
 	function addMarker(utcHour: number) {
-		if (markers.length >= 5) return; // max 5 markers
 		const color = MARKER_COLORS[markers.length % MARKER_COLORS.length];
 		const id = nextMarkerId++;
-		markers = [...markers, { id, utcHour, label: '', color }];
+		markers = [...markers, { id, utcHour, utcHourEnd: null, label: '', color }];
 		selectedMarkerId = id;
 		updateUrl();
 	}
@@ -753,26 +778,104 @@
 		updateUrl();
 	}
 
-	function handleGridClick(e: MouseEvent) {
-		if (dragDidMove) return; // was a drag, not a click
-		if ((e.target as HTMLElement).closest('button')) return;
-		if ((e.target as HTMLElement).closest('.marker-line')) return;
-
-		const container = e.currentTarget as HTMLElement;
-		const cellsEl = container.querySelector('.cells-area');
-		if (!cellsEl) return;
-		const rect = cellsEl.getBoundingClientRect();
-		const percent = Math.max(0, Math.min(100, ((e.clientX - rect.left) / rect.width) * 100));
-		const utcHour = screenPercentToUtcHour(percent);
-		addMarker(utcHour);
+function handleMarkerLineClick(e: MouseEvent, markerId: number) {
+		e.stopPropagation();
+		selectedMarkerId = selectedMarkerId === markerId ? null : markerId;
 	}
 
-	function handleMarkerLineClick(e: MouseEvent, markerId: number) {
+	// --- Marker dragging ---
+	function handleMarkerDragStart(e: MouseEvent, markerId: number) {
 		e.stopPropagation();
-		if (selectedMarkerId === markerId) {
-			selectedMarkerId = null;
+		e.preventDefault();
+		isDraggingMarker = true;
+		draggingMarkerId = markerId;
+		markerDragStartX = e.clientX;
+		const marker = markers.find(m => m.id === markerId);
+		markerDragStartUtcHour = marker?.utcHour ?? 0;
+		selectedMarkerId = markerId;
+	}
+
+	function handleMarkerDragMove(e: MouseEvent) {
+		if (!isDraggingMarker || draggingMarkerId === null) return;
+		const dx = e.clientX - markerDragStartX;
+		const dHours = dx / cellWidth;
+		const newUtcHour = markerDragStartUtcHour + dHours;
+		markers = markers.map(m => {
+			if (m.id !== draggingMarkerId) return m;
+			// If interval, shift both ends by same amount
+			const delta = newUtcHour - m.utcHour;
+			return {
+				...m,
+				utcHour: newUtcHour,
+				utcHourEnd: m.utcHourEnd !== null ? m.utcHourEnd + delta : null,
+			};
+		});
+	}
+
+	function handleMarkerDragEnd() {
+		if (isDraggingMarker) {
+			isDraggingMarker = false;
+			draggingMarkerId = null;
+			updateUrl();
+		}
+	}
+
+	// --- Create strip (area above grid for creating markers/intervals) ---
+	function getCreateStripPercent(e: MouseEvent): number {
+		const strip = (e.currentTarget as HTMLElement).querySelector('.marker-create-strip')
+			?? (e.currentTarget as HTMLElement).closest('.marker-create-strip');
+		const el = strip ?? e.currentTarget as HTMLElement;
+		const rect = el.getBoundingClientRect();
+		return Math.max(0, Math.min(100, ((e.clientX - rect.left) / rect.width) * 100));
+	}
+
+	function handleCreateStripMouseDown(e: MouseEvent) {
+		if ((e.target as HTMLElement).closest('.marker-label')) return;
+		const pct = getCreateStripPercent(e);
+		const utcHour = screenPercentToUtcHour(pct);
+		isCreatingInterval = true;
+		createIntervalStart = utcHour;
+		createIntervalCurrentPct = pct;
+		e.preventDefault();
+	}
+
+	function handleCreateStripMouseMove(e: MouseEvent) {
+		const pct = getCreateStripPercent(e);
+		createStripHoverPct = pct;
+		if (isCreatingInterval) {
+			createIntervalCurrentPct = pct;
+		}
+	}
+
+	function handleCreateStripMouseUp(e: MouseEvent) {
+		if (!isCreatingInterval || createIntervalStart === null) return;
+		// Use the current preview pct (works even if mouse is outside strip)
+		const endUtcHour = screenPercentToUtcHour(createIntervalCurrentPct);
+		const startUtcHour = createIntervalStart;
+
+		// If barely moved, create a point marker; otherwise an interval
+		const hourDiff = Math.abs(endUtcHour - startUtcHour);
+		if (hourDiff < 0.25) {
+			addMarker(startUtcHour);
 		} else {
-			selectedMarkerId = markerId;
+			const color = MARKER_COLORS[markers.length % MARKER_COLORS.length];
+			const id = nextMarkerId++;
+			const start = Math.min(startUtcHour, endUtcHour);
+			const end = Math.max(startUtcHour, endUtcHour);
+			markers = [...markers, { id, utcHour: start, utcHourEnd: end, label: '', color }];
+			selectedMarkerId = id;
+			updateUrl();
+		}
+
+		isCreatingInterval = false;
+		createIntervalStart = null;
+	}
+
+	function handleCreateStripMouseLeave() {
+		createStripHoverPct = null;
+		if (isCreatingInterval) {
+			isCreatingInterval = false;
+			createIntervalStart = null;
 		}
 	}
 
@@ -966,31 +1069,66 @@
 					</div>
 				{/if}
 
-				<!-- Marker labels above the grid (desktop) -->
-				{#each markerPositions as marker}
-					{#if marker.visible}
-						<div class="flex max-sm:hidden">
-							<div class="w-44 shrink-0"></div>
-							<div class="flex-1 relative">
-								<div
-									class="absolute -top-4 -translate-x-1/2 text-[10px] font-medium whitespace-nowrap"
-									style="left: {marker.percent}%; color: {marker.color}"
-								>
-									{#if refTzId}{formatMarkerTime(marker.utcHour, refTzId)}{/if}
-								</div>
+				<!-- Marker creation strip + labels above the grid -->
+				<!-- svelte-ignore a11y_no_static_element_interactions -->
+				<div class="flex"
+					onmousedown={handleCreateStripMouseDown}
+					onmousemove={handleCreateStripMouseMove}
+					onmouseup={handleCreateStripMouseUp}
+					onmouseleave={handleCreateStripMouseLeave}
+					style="cursor: crosshair"
+				>
+					<div class="w-44 shrink-0 max-sm:hidden"></div>
+					<div class="flex-1 relative h-6 marker-create-strip">
+						<!-- Hover indicator (gray line + plus) -->
+						{#if createStripHoverPct !== null && !isCreatingInterval}
+							<div class="absolute top-0 bottom-0 -translate-x-1/2 pointer-events-none z-10 flex flex-col items-center"
+								style="left: {createStripHoverPct}%">
+								<div class="text-[10px] text-muted-foreground/60 leading-none mb-0.5">+</div>
+								<div class="flex-1 w-[1px] bg-muted-foreground/30"></div>
 							</div>
-						</div>
-					{/if}
-				{/each}
+						{/if}
+						<!-- Existing marker labels (draggable) -->
+						{#each markerPositions as marker}
+							{#if marker.visible}
+								<!-- svelte-ignore a11y_no_static_element_interactions -->
+								<div
+									class="marker-label absolute top-0 -translate-x-1/2 text-[10px] font-medium whitespace-nowrap cursor-grab active:cursor-grabbing select-none px-1 py-0.5 rounded z-30"
+									style="left: {marker.isInterval ? (marker.leftPct + marker.rightPct) / 2 : marker.percent}%; color: {marker.color}; background: {marker.color}15;"
+									onmousedown={(e) => { e.stopPropagation(); handleMarkerDragStart(e, marker.id); }}
+								>
+									{#if refTzId}
+										{#if marker.isInterval}
+											{formatMarkerTime(Math.min(marker.utcHour, marker.utcHourEnd ?? marker.utcHour), refTzId)} – {formatMarkerTime(Math.max(marker.utcHour, marker.utcHourEnd ?? marker.utcHour), refTzId)}
+										{:else}
+											{formatMarkerTime(marker.utcHour, refTzId)}
+										{/if}
+									{/if}
+								</div>
+							{/if}
+						{/each}
+
+						<!-- Preview line while creating interval -->
+						{#if isCreatingInterval && createIntervalStart !== null}
+							{@const startPct = markerScreenPercent(createIntervalStart)}
+							{@const endPct = createIntervalCurrentPct}
+							{@const left = Math.min(startPct, endPct)}
+							{@const width = Math.abs(endPct - startPct)}
+							<div class="absolute top-0 bottom-0 pointer-events-none z-20"
+								style="left: {left}%; width: {width}%; background: {MARKER_COLORS[markers.length % MARKER_COLORS.length]}20;">
+								<div class="absolute left-0 top-0 bottom-0 w-[2px]" style="background: {MARKER_COLORS[markers.length % MARKER_COLORS.length]}"></div>
+								<div class="absolute right-0 top-0 bottom-0 w-[2px]" style="background: {MARKER_COLORS[markers.length % MARKER_COLORS.length]}"></div>
+							</div>
+						{/if}
+					</div>
+				</div>
 
 				<!-- Grid -->
 				<div
 					class="relative overflow-hidden"
-					data-grid
 					onmousemove={handleCellsMouseMove}
 					onmouseleave={handleCellsMouseLeave}
 					onmousedown={handleDragStart}
-					onclick={handleGridClick}
 					ontouchstart={handleTouchStart}
 					role="presentation"
 					style="cursor: {isDragging ? 'grabbing' : 'grab'}"
@@ -1021,21 +1159,40 @@
 						</div>
 					{/if}
 
-					<!-- Marker lines (desktop — span all rows) -->
+					<!-- Marker lines + intervals (desktop — span all rows) -->
 					{#each markerPositions as marker}
 						{#if marker.visible}
 							<div class="absolute top-0 bottom-0 flex max-sm:hidden" style="left: 0; right: 0; z-index: 25;">
 								<div class="w-44 shrink-0"></div>
 								<div class="flex-1 relative">
-									<!-- svelte-ignore a11y_click_events_have_key_events -->
-									<!-- svelte-ignore a11y_no_static_element_interactions -->
-									<div
-										class="marker-line absolute top-0 bottom-0 -translate-x-1/2 cursor-pointer"
-										style="left: {marker.percent}%; width: 8px;"
-										onclick={(e) => handleMarkerLineClick(e, marker.id)}
-									>
-										<div class="absolute left-1/2 -translate-x-1/2 top-0 bottom-0 w-[2px]" style="background: {marker.color}"></div>
-									</div>
+									{#if marker.isInterval}
+										<!-- Interval shading -->
+										<!-- svelte-ignore a11y_click_events_have_key_events -->
+										<!-- svelte-ignore a11y_no_static_element_interactions -->
+										<div
+											class="marker-line absolute top-0 bottom-0 cursor-pointer"
+											style="left: {marker.leftPct}%; width: {marker.rightPct - marker.leftPct}%; background: {marker.color}20;"
+											onclick={(e) => handleMarkerLineClick(e, marker.id)}
+											onmousedown={(e) => handleMarkerDragStart(e, marker.id)}
+										>
+											<!-- Left edge -->
+											<div class="absolute left-0 top-0 bottom-0 w-[2px]" style="background: {marker.color}"></div>
+											<!-- Right edge -->
+											<div class="absolute right-0 top-0 bottom-0 w-[2px]" style="background: {marker.color}"></div>
+										</div>
+									{:else}
+										<!-- Point marker line -->
+										<!-- svelte-ignore a11y_click_events_have_key_events -->
+										<!-- svelte-ignore a11y_no_static_element_interactions -->
+										<div
+											class="marker-line absolute top-0 bottom-0 -translate-x-1/2 cursor-pointer"
+											style="left: {marker.percent}%; width: 8px;"
+											onclick={(e) => handleMarkerLineClick(e, marker.id)}
+											onmousedown={(e) => handleMarkerDragStart(e, marker.id)}
+										>
+											<div class="absolute left-1/2 -translate-x-1/2 top-0 bottom-0 w-[2px]" style="background: {marker.color}"></div>
+										</div>
+									{/if}
 								</div>
 							</div>
 						{/if}
@@ -1113,8 +1270,16 @@
 									<!-- Mobile marker lines (per-row) -->
 									{#each markerPositions as marker}
 										{#if marker.visible}
-											<div class="hidden max-sm:block absolute top-0 bottom-0 w-[2px] z-25 -translate-x-1/2 pointer-events-none"
-												style="left: {marker.percent}%; background: {marker.color}"></div>
+											{#if marker.isInterval}
+												<div class="hidden max-sm:block absolute top-0 bottom-0 pointer-events-none"
+													style="left: {marker.leftPct}%; width: {marker.rightPct - marker.leftPct}%; background: {marker.color}20; z-index: 25;">
+													<div class="absolute left-0 top-0 bottom-0 w-[2px]" style="background: {marker.color}"></div>
+													<div class="absolute right-0 top-0 bottom-0 w-[2px]" style="background: {marker.color}"></div>
+												</div>
+											{:else}
+												<div class="hidden max-sm:block absolute top-0 bottom-0 w-[2px] -translate-x-1/2 pointer-events-none"
+													style="left: {marker.percent}%; background: {marker.color}; z-index: 25;"></div>
+											{/if}
 										{/if}
 									{/each}
 									<div
@@ -1198,9 +1363,13 @@
 								role="button"
 								tabindex="0"
 							>
-								<span class="w-2 h-2 rounded-full" style="background: {marker.color}"></span>
+								<span class="w-2 h-2 rounded-full shrink-0" style="background: {marker.color}"></span>
 								{#if refTzId}
-									{formatMarkerTime(marker.utcHour, refTzId)}
+									{#if marker.utcHourEnd !== null}
+										{formatMarkerTime(Math.min(marker.utcHour, marker.utcHourEnd), refTzId)} – {formatMarkerTime(Math.max(marker.utcHour, marker.utcHourEnd), refTzId)}
+									{:else}
+										{formatMarkerTime(marker.utcHour, refTzId)}
+									{/if}
 									<span class="text-muted-foreground">{getCityName(refTzId)}</span>
 								{/if}
 								<button
