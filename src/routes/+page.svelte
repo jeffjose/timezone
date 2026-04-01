@@ -1290,7 +1290,7 @@ function handleMarkerLineClick(e: MouseEvent, markerId: number) {
 				>
 					<!-- Blue now-line (desktop only — on mobile, rendered per-row) -->
 					{#if nowLineVisible}
-						<div class="absolute top-0 bottom-0 pointer-events-none max-sm:hidden" style="left: 11rem; right: 0;">
+						<div class="absolute top-0 bottom-0 overflow-hidden pointer-events-none max-sm:hidden" style="left: 11rem; right: 0;">
 							<div
 								class="absolute top-0 bottom-0 w-[2px] bg-blue-500 z-20 -translate-x-1/2"
 								style="left: {nowLinePercent}%"
@@ -1300,7 +1300,7 @@ function handleMarkerLineClick(e: MouseEvent, markerId: number) {
 
 					<!-- Gray hover-line (desktop only) -->
 					{#if hoverPercent !== null && !isDragging}
-						<div class="absolute top-0 bottom-0 pointer-events-none max-sm:hidden" style="left: 11rem; right: 0;">
+						<div class="absolute top-0 bottom-0 overflow-hidden pointer-events-none max-sm:hidden" style="left: 11rem; right: 0;">
 							<div
 								class="absolute top-0 bottom-0 w-[1px] bg-foreground/30 z-30 -translate-x-1/2"
 								style="left: {hoverPercent}%"
@@ -1311,7 +1311,7 @@ function handleMarkerLineClick(e: MouseEvent, markerId: number) {
 					<!-- Marker lines + intervals (desktop — span all rows) -->
 					{#each markerPositions as marker}
 						{#if marker.visible}
-							<div class="absolute top-0 bottom-0 max-sm:hidden" style="left: 11rem; right: 0; z-index: 25;">
+							<div class="absolute top-0 bottom-0 overflow-hidden max-sm:hidden" style="left: 11rem; right: 0; z-index: 25;">
 								<div class="relative h-full">
 									{#if marker.isInterval}
 										{@const isEditing = editingMarkerId === marker.id}
@@ -1369,7 +1369,7 @@ function handleMarkerLineClick(e: MouseEvent, markerId: number) {
 						{@const previewLeft = Math.min(previewStartPct, previewEndPct)}
 						{@const previewWidth = Math.abs(previewEndPct - previewStartPct)}
 						{@const previewColor = MARKER_COLORS[markers.length % MARKER_COLORS.length]}
-						<div class="absolute top-0 bottom-0 pointer-events-none max-sm:hidden" style="left: 11rem; right: 0; z-index: 24;">
+						<div class="absolute top-0 bottom-0 overflow-hidden pointer-events-none max-sm:hidden" style="left: 11rem; right: 0; z-index: 24;">
 							<div class="relative h-full">
 								{#if previewWidth > 1}
 									<div class="absolute top-0 bottom-0"
