@@ -12,7 +12,7 @@
 		type TimezoneInfo,
 		type SearchResult,
 	} from '$lib/timezones';
-	import { X, ChevronUp, ChevronDown, Search, Globe, ChevronLeft, ChevronRight, CalendarDays, Plus, EllipsisVertical, Trash2, Copy } from '@lucide/svelte';
+	import { X, ChevronUp, ChevronDown, Search, Globe, ChevronLeft, ChevronRight, CalendarDays, Plus, EllipsisVertical, Trash2, Copy, MoveHorizontal } from '@lucide/svelte';
 	import { DropdownMenu } from 'bits-ui';
 
 	interface SelectedTz {
@@ -1181,29 +1181,32 @@ function handleMarkerLineClick(e: MouseEvent, markerId: number) {
 											<EllipsisVertical class="h-3 w-3" />
 										</DropdownMenu.Trigger>
 										<DropdownMenu.Portal>
-											<DropdownMenu.Content class="z-50 rounded-md border border-border bg-popover shadow-md py-1 min-w-[130px] text-xs" sideOffset={4}>
+											<DropdownMenu.Content
+												class="z-50 min-w-[160px] overflow-hidden rounded-md border border-border bg-background p-1 text-foreground shadow-md"
+												sideOffset={4}
+											>
 												{#if marker.isInterval}
 													<DropdownMenu.Item
-														class="flex items-center gap-2 px-3 py-1.5 text-popover-foreground hover:bg-accent transition-colors cursor-pointer outline-none data-[highlighted]:bg-accent"
+														class="relative flex items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-none cursor-pointer transition-colors data-[highlighted]:bg-accent data-[highlighted]:text-accent-foreground"
 														onSelect={() => { editingMarkerId = editingMarkerId === marker.id ? null : marker.id; }}
 													>
-														<span class="text-muted-foreground text-xs">↔</span>
+														<MoveHorizontal class="h-4 w-4 text-muted-foreground" />
 														Resize
 													</DropdownMenu.Item>
 												{/if}
 												<DropdownMenu.Item
-													class="flex items-center gap-2 px-3 py-1.5 text-popover-foreground hover:bg-accent transition-colors cursor-pointer outline-none data-[highlighted]:bg-accent"
+													class="relative flex items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-none cursor-pointer transition-colors data-[highlighted]:bg-accent data-[highlighted]:text-accent-foreground"
 													onSelect={() => duplicateMarker(marker.id)}
 												>
-													<Copy class="h-3 w-3 text-muted-foreground" />
+													<Copy class="h-4 w-4 text-muted-foreground" />
 													Duplicate
 												</DropdownMenu.Item>
-												<DropdownMenu.Separator class="my-1 h-px bg-border" />
+												<DropdownMenu.Separator class="-mx-1 my-1 h-px bg-border" />
 												<DropdownMenu.Item
-													class="flex items-center gap-2 px-3 py-1.5 text-destructive hover:bg-destructive/10 transition-colors cursor-pointer outline-none data-[highlighted]:bg-destructive/10"
+													class="relative flex items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-none cursor-pointer transition-colors text-destructive data-[highlighted]:bg-destructive/10 data-[highlighted]:text-destructive"
 													onSelect={() => removeMarker(marker.id)}
 												>
-													<Trash2 class="h-3 w-3" />
+													<Trash2 class="h-4 w-4" />
 													Delete
 												</DropdownMenu.Item>
 											</DropdownMenu.Content>
