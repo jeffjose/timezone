@@ -272,7 +272,12 @@
 			const strip = document.querySelector('.marker-create-strip');
 			if (strip) {
 				const rect = strip.getBoundingClientRect();
-				createIntervalCurrentPct = Math.max(0, Math.min(100, ((e.clientX - rect.left) / rect.width) * 100));
+				let pct = Math.max(0, Math.min(100, ((e.clientX - rect.left) / rect.width) * 100));
+				if (e.shiftKey) {
+					const snapped = snapToQuarter(screenPercentToUtcHour(pct));
+					pct = markerScreenPercent(snapped);
+				}
+				createIntervalCurrentPct = pct;
 			}
 			return;
 		}
@@ -798,6 +803,15 @@ function handleMarkerLineClick(e: MouseEvent, markerId: number) {
 		selectedMarkerId = selectedMarkerId === markerId ? null : markerId;
 	}
 
+	// Snap UTC hour to nearest :00/:15/:30/:45 in reference timezone
+	function snapToQuarter(utcHour: number): number {
+		if (!refTzId) return utcHour;
+		const offsetMinutes = getTimezoneOffset(refTzId, offsetBase);
+		const localMinutes = utcHour * 60 + offsetMinutes;
+		const snapped = Math.round(localMinutes / 15) * 15;
+		return (snapped - offsetMinutes) / 60;
+	}
+
 	// --- Marker dragging ---
 	function handleMarkerDragStart(e: MouseEvent, markerId: number) {
 		e.stopPropagation();
@@ -814,7 +828,8 @@ function handleMarkerLineClick(e: MouseEvent, markerId: number) {
 		if (!isDraggingMarker || draggingMarkerId === null) return;
 		const dx = e.clientX - markerDragStartX;
 		const dHours = dx / cellWidth;
-		const newUtcHour = markerDragStartUtcHour + dHours;
+		let newUtcHour = markerDragStartUtcHour + dHours;
+		if (e.shiftKey) newUtcHour = snapToQuarter(newUtcHour);
 
 		if (draggingEdge) {
 			// Edge drag: only move one end
@@ -898,15 +913,20 @@ function handleMarkerLineClick(e: MouseEvent, markerId: number) {
 	function handleCreateStripMouseDown(e: MouseEvent) {
 		if ((e.target as HTMLElement).closest('.marker-label')) return;
 		const pct = getCreateStripPercent(e);
-		const utcHour = screenPercentToUtcHour(pct);
+		let utcHour = screenPercentToUtcHour(pct);
+		if (e.shiftKey) utcHour = snapToQuarter(utcHour);
 		isCreatingInterval = true;
 		createIntervalStart = utcHour;
-		createIntervalCurrentPct = pct;
+		createIntervalCurrentPct = e.shiftKey ? markerScreenPercent(utcHour) : pct;
 		e.preventDefault();
 	}
 
 	function handleCreateStripMouseMove(e: MouseEvent) {
-		const pct = getCreateStripPercent(e);
+		let pct = getCreateStripPercent(e);
+		if (e.shiftKey && isCreatingInterval) {
+			const snapped = snapToQuarter(screenPercentToUtcHour(pct));
+			pct = markerScreenPercent(snapped);
+		}
 		createStripHoverPct = pct;
 		hoverPercent = pct; // show gray line through grid
 		if (isCreatingInterval) {
@@ -917,13 +937,14 @@ function handleMarkerLineClick(e: MouseEvent, markerId: number) {
 	function handleCreateStripMouseUp(e: MouseEvent) {
 		if (!isCreatingInterval || createIntervalStart === null) return;
 		// Use the current preview pct (works even if mouse is outside strip)
-		const endUtcHour = screenPercentToUtcHour(createIntervalCurrentPct);
+		let endUtcHour = screenPercentToUtcHour(createIntervalCurrentPct);
+		if (e.shiftKey) endUtcHour = snapToQuarter(endUtcHour);
 		const startUtcHour = createIntervalStart;
 
 		// If barely moved, create a point marker; otherwise an interval
 		const hourDiff = Math.abs(endUtcHour - startUtcHour);
 		if (hourDiff < 0.25) {
-			addMarker(startUtcHour);
+			addMarker(e.shiftKey ? snapToQuarter(startUtcHour) : startUtcHour);
 		} else {
 			const color = MARKER_COLORS[markers.length % MARKER_COLORS.length];
 			const id = nextMarkerId++;
@@ -1269,36 +1290,29 @@ function handleMarkerLineClick(e: MouseEvent, markerId: number) {
 				>
 					<!-- Blue now-line (desktop only — on mobile, rendered per-row) -->
 					{#if nowLineVisible}
-						<div class="absolute top-0 bottom-0 flex pointer-events-none max-sm:hidden" style="left: 0; right: 0;">
-							<div class="w-44 shrink-0"></div>
-							<div class="flex-1 relative">
-								<div
-									class="absolute top-0 bottom-0 w-[2px] bg-blue-500 z-20 -translate-x-1/2"
-									style="left: {nowLinePercent}%"
-								></div>
-							</div>
+						<div class="absolute top-0 bottom-0 pointer-events-none max-sm:hidden" style="left: 11rem; right: 0;">
+							<div
+								class="absolute top-0 bottom-0 w-[2px] bg-blue-500 z-20 -translate-x-1/2"
+								style="left: {nowLinePercent}%"
+							></div>
 						</div>
 					{/if}
 
 					<!-- Gray hover-line (desktop only) -->
 					{#if hoverPercent !== null && !isDragging}
-						<div class="absolute top-0 bottom-0 flex pointer-events-none max-sm:hidden" style="left: 0; right: 0;">
-							<div class="w-44 shrink-0"></div>
-							<div class="flex-1 relative">
-								<div
-									class="absolute top-0 bottom-0 w-[1px] bg-foreground/30 z-30 -translate-x-1/2"
-									style="left: {hoverPercent}%"
-								></div>
-							</div>
+						<div class="absolute top-0 bottom-0 pointer-events-none max-sm:hidden" style="left: 11rem; right: 0;">
+							<div
+								class="absolute top-0 bottom-0 w-[1px] bg-foreground/30 z-30 -translate-x-1/2"
+								style="left: {hoverPercent}%"
+							></div>
 						</div>
 					{/if}
 
 					<!-- Marker lines + intervals (desktop — span all rows) -->
 					{#each markerPositions as marker}
 						{#if marker.visible}
-							<div class="absolute top-0 bottom-0 flex max-sm:hidden" style="left: 0; right: 0; z-index: 25;">
-								<div class="w-44 shrink-0"></div>
-								<div class="flex-1 relative">
+							<div class="absolute top-0 bottom-0 max-sm:hidden" style="left: 11rem; right: 0; z-index: 25;">
+								<div class="relative h-full">
 									{#if marker.isInterval}
 										{@const isEditing = editingMarkerId === marker.id}
 										<!-- Interval shading -->
@@ -1355,9 +1369,8 @@ function handleMarkerLineClick(e: MouseEvent, markerId: number) {
 						{@const previewLeft = Math.min(previewStartPct, previewEndPct)}
 						{@const previewWidth = Math.abs(previewEndPct - previewStartPct)}
 						{@const previewColor = MARKER_COLORS[markers.length % MARKER_COLORS.length]}
-						<div class="absolute top-0 bottom-0 flex pointer-events-none max-sm:hidden" style="left: 0; right: 0; z-index: 24;">
-							<div class="w-44 shrink-0"></div>
-							<div class="flex-1 relative">
+						<div class="absolute top-0 bottom-0 pointer-events-none max-sm:hidden" style="left: 11rem; right: 0; z-index: 24;">
+							<div class="relative h-full">
 								{#if previewWidth > 1}
 									<div class="absolute top-0 bottom-0"
 										style="left: {previewLeft}%; width: {previewWidth}%; background: {previewColor}15;">
@@ -1389,7 +1402,7 @@ function handleMarkerLineClick(e: MouseEvent, markerId: number) {
 								</div>
 
 								<!-- Timezone label -->
-								<div class="sm:w-38 sm:shrink-0 relative z-30 sm:pr-2 sm:h-12 flex flex-col sm:justify-center
+								<div class="sm:w-38 sm:shrink-0 relative bg-background sm:pr-2 sm:h-12 flex flex-col sm:justify-center
 									max-sm:flex-row max-sm:items-baseline max-sm:gap-2 max-sm:px-1 max-sm:py-1">
 									<div class="font-medium text-sm leading-tight flex items-center gap-1.5">
 										{entry.label}
