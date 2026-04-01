@@ -870,14 +870,13 @@ function handleMarkerLineClick(e: MouseEvent, markerId: number) {
 
 		isCreatingInterval = false;
 		createIntervalStart = null;
+		hoverPercent = null;
 	}
 
 	function handleCreateStripMouseLeave() {
 		createStripHoverPct = null;
-		hoverPercent = null;
-		if (isCreatingInterval) {
-			isCreatingInterval = false;
-			createIntervalStart = null;
+		if (!isCreatingInterval) {
+			hoverPercent = null;
 		}
 	}
 
