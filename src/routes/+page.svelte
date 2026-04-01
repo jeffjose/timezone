@@ -554,13 +554,16 @@
 		return { weekday, month, day };
 	}
 
-	function formatNavDay(d: Date): { dayNum: string; weekday: string; isWeekend: boolean; isToday: boolean } {
+	function formatNavDay(d: Date): { dayNum: string; topLabel: string; isWeekend: boolean; isToday: boolean } {
 		const dayNum = String(d.getDate());
-		const weekday = new Intl.DateTimeFormat('en-US', { weekday: 'short' }).format(d);
 		const dow = d.getDay();
 		const today = new Date();
 		today.setHours(0, 0, 0, 0);
-		return { dayNum, weekday, isWeekend: dow === 0 || dow === 6, isToday: isSameDay(d, today) };
+		// On the 1st, show month name instead of weekday
+		const topLabel = d.getDate() === 1
+			? new Intl.DateTimeFormat('en-US', { month: 'short' }).format(d)
+			: new Intl.DateTimeFormat('en-US', { weekday: 'short' }).format(d);
+		return { dayNum, topLabel, isWeekend: dow === 0 || dow === 6, isToday: isSameDay(d, today) };
 	}
 </script>
 
@@ -704,7 +707,7 @@
 												: 'text-muted-foreground hover:bg-accent hover:text-foreground'}"
 								style="width: {navPillWidth}px"
 							>
-								<span class="text-[9px] leading-tight font-medium">{info.weekday}</span>
+								<span class="text-[9px] leading-tight font-medium">{info.topLabel}</span>
 								<span class="text-sm font-semibold leading-tight">{info.dayNum}</span>
 							</button>
 						{/each}
