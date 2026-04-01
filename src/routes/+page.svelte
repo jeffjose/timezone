@@ -842,6 +842,7 @@ function handleMarkerLineClick(e: MouseEvent, markerId: number) {
 	function handleCreateStripMouseMove(e: MouseEvent) {
 		const pct = getCreateStripPercent(e);
 		createStripHoverPct = pct;
+		hoverPercent = pct; // show gray line through grid
 		if (isCreatingInterval) {
 			createIntervalCurrentPct = pct;
 		}
@@ -873,6 +874,7 @@ function handleMarkerLineClick(e: MouseEvent, markerId: number) {
 
 	function handleCreateStripMouseLeave() {
 		createStripHoverPct = null;
+		hoverPercent = null;
 		if (isCreatingInterval) {
 			isCreatingInterval = false;
 			createIntervalStart = null;
@@ -1073,12 +1075,11 @@ function handleMarkerLineClick(e: MouseEvent, markerId: number) {
 								style="left: {nowLinePercent}%"></div>
 						{/if}
 
-						<!-- Hover indicator (gray line + plus) -->
+						<!-- Hover indicator: + at bottom edge (same level as blue dot) -->
 						{#if createStripHoverPct !== null && !isCreatingInterval}
-							<div class="absolute top-0 bottom-0 -translate-x-1/2 pointer-events-none z-10 flex flex-col items-center"
+							<div class="absolute bottom-0 -translate-x-1/2 translate-y-1/2 pointer-events-none z-10 flex items-center justify-center w-4 h-4 rounded-full bg-muted-foreground/10"
 								style="left: {createStripHoverPct}%">
-								<div class="text-[10px] text-muted-foreground/60 leading-none mb-0.5">+</div>
-								<div class="flex-1 w-[1px] bg-muted-foreground/30"></div>
+								<span class="text-[10px] text-muted-foreground/60 leading-none font-medium">+</span>
 							</div>
 						{/if}
 						<!-- Existing marker labels (draggable) -->
