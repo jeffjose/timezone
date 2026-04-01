@@ -12,10 +12,7 @@
 		type TimezoneInfo,
 		type SearchResult,
 	} from '$lib/timezones';
-	import { X, ChevronUp, ChevronDown, Search, Globe, ChevronLeft, ChevronRight, CalendarDays, Dot } from '@lucide/svelte';
-	import * as Popover from '$lib/components/ui/popover';
-	import { Calendar } from '$lib/components/ui/calendar';
-	import { CalendarDate, today, getLocalTimeZone } from '@internationalized/date';
+	import { X, ChevronUp, ChevronDown, Search, Globe, ChevronLeft, ChevronRight, CalendarDays } from '@lucide/svelte';
 
 	interface SelectedTz {
 		id: string;
@@ -35,8 +32,6 @@
 	let now = $state(new Date());
 	let dropdownEl: HTMLDivElement | undefined = $state();
 	let hoverPercent: number | null = $state(null);
-	let calendarOpen = $state(false);
-
 	// Carousel state
 	// centerHour = UTC fractional hours since UTC midnight today
 	// All internal positioning uses UTC. Each timezone row shifts its strip
@@ -105,10 +100,6 @@
 	})());
 
 	let isToday = $derived(viewDayOffset === 0);
-	let calendarValue = $derived(
-		new CalendarDate(selectedDate.getFullYear(), selectedDate.getMonth() + 1, selectedDate.getDate())
-	);
-
 	// Date carousel: 61 pills with reanchoring (like the grid)
 	const NAV_DAYS_COUNT = 61;
 	const NAV_DAYS_HALF = 30;
@@ -168,7 +159,7 @@
 	}
 
 	function goToDate(date: Date) {
-		if (isSameDay(date, selectedDate)) { calendarOpen = false; return; }
+		if (isSameDay(date, selectedDate)) return;
 		const target = new Date(date);
 		target.setHours(0, 0, 0, 0);
 		const todayDate = new Date();
@@ -176,7 +167,6 @@
 		const targetDayOffset = Math.round((target.getTime() - todayDate.getTime()) / 86400000);
 		// Keep the same time-of-day within the target day
 		const hourInDay = ((centerHour % 24) + 24) % 24;
-		calendarOpen = false;
 		smoothNavigate(targetDayOffset * 24 + hourInDay);
 	}
 
@@ -667,7 +657,18 @@
 			</div>
 
 			<!-- Date navigator -->
-			<div class="flex items-center gap-1 self-end">
+			<div class="flex items-center gap-1 justify-center">
+				<button
+					type="button"
+					onclick={goToday}
+					class="p-1.5 rounded-md transition-colors {Math.abs(centerHour - currentHourFrac) < 0.5
+						? 'text-muted-foreground/30 cursor-default'
+						: 'text-blue-400 hover:bg-blue-500/15'}"
+					title="Go to today"
+				>
+					<CalendarDays class="h-4 w-4" />
+				</button>
+
 				<button
 					type="button"
 					onclick={() => shiftView(-24)}
@@ -675,24 +676,6 @@
 				>
 					<ChevronLeft class="h-4 w-4" />
 				</button>
-
-				<!-- Calendar popover -->
-				<Popover.Root bind:open={calendarOpen}>
-					<Popover.Trigger class="p-1.5 rounded-md hover:bg-accent text-muted-foreground hover:text-foreground transition-colors">
-						<CalendarDays class="h-4 w-4" />
-					</Popover.Trigger>
-					<Popover.Content class="w-auto p-0" align="center">
-						<Calendar
-							type="single"
-							value={calendarValue}
-							onValueChange={(v) => {
-								if (v) {
-									goToDate(new Date(v.year, v.month - 1, v.day));
-								}
-							}}
-						/>
-					</Popover.Content>
-				</Popover.Root>
 
 				<!-- Date carousel (minimap) -->
 				<div
@@ -734,17 +717,6 @@
 					class="p-1.5 rounded-md hover:bg-accent text-muted-foreground hover:text-foreground transition-colors"
 				>
 					<ChevronRight class="h-4 w-4" />
-				</button>
-
-				<button
-					type="button"
-					onclick={goToday}
-					class="p-1 rounded-md transition-colors {Math.abs(centerHour - currentHourFrac) < 0.5
-						? 'text-muted-foreground/30 cursor-default'
-						: 'text-blue-400 hover:bg-blue-500/15'}"
-					title="Go to today"
-				>
-					<Dot class="h-5 w-5" strokeWidth={6} />
 				</button>
 			</div>
 		</div>
