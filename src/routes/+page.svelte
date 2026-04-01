@@ -1191,6 +1191,30 @@ function handleMarkerLineClick(e: MouseEvent, markerId: number) {
 						{/if}
 					{/each}
 
+					<!-- Interval creation preview (full grid height) -->
+					{#if isCreatingInterval && createIntervalStart !== null}
+						{@const previewStartPct = markerScreenPercent(createIntervalStart)}
+						{@const previewEndPct = createIntervalCurrentPct}
+						{@const previewLeft = Math.min(previewStartPct, previewEndPct)}
+						{@const previewWidth = Math.abs(previewEndPct - previewStartPct)}
+						{@const previewColor = MARKER_COLORS[markers.length % MARKER_COLORS.length]}
+						<div class="absolute top-0 bottom-0 flex pointer-events-none max-sm:hidden" style="left: 0; right: 0; z-index: 24;">
+							<div class="w-44 shrink-0"></div>
+							<div class="flex-1 relative">
+								{#if previewWidth > 1}
+									<div class="absolute top-0 bottom-0"
+										style="left: {previewLeft}%; width: {previewWidth}%; background: {previewColor}15;">
+										<div class="absolute left-0 top-0 bottom-0 w-[2px]" style="background: {previewColor}"></div>
+										<div class="absolute right-0 top-0 bottom-0 w-[2px]" style="background: {previewColor}"></div>
+									</div>
+								{:else}
+									<div class="absolute top-0 bottom-0 w-[2px] -translate-x-1/2"
+										style="left: {previewStartPct}%; background: {previewColor}"></div>
+								{/if}
+							</div>
+						</div>
+					{/if}
+
 					<!-- Rows -->
 					<div class="space-y-1 max-sm:space-y-3">
 						{#each selectedTimezones as entry, rowIndex}
