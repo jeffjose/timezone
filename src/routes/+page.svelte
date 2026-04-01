@@ -1389,7 +1389,7 @@ function handleMarkerLineClick(e: MouseEvent, markerId: number) {
 								</div>
 
 								<!-- Timezone label -->
-								<div class="sm:w-38 sm:shrink-0 relative sm:pr-2 sm:h-12 flex flex-col sm:justify-center
+								<div class="sm:w-38 sm:shrink-0 relative z-30 sm:pr-2 sm:h-12 flex flex-col sm:justify-center
 									max-sm:flex-row max-sm:items-baseline max-sm:gap-2 max-sm:px-1 max-sm:py-1">
 									<div class="font-medium text-sm leading-tight flex items-center gap-1.5">
 										{entry.label}
