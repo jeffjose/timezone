@@ -43,6 +43,7 @@
 	let dragStartCenter = $state(0);
 	let containerWidth = $state(1); // measured on mount
 	let navContainerWidth = $state(1); // measured on mount
+	let ready = $state(false);
 
 	// Derived
 	let showDropdown = $derived(searchFocused && query.length > 0 && (searchResults.length > 0 || isSearchingRemote));
@@ -261,6 +262,7 @@
 			if (navEl) navContainerWidth = navEl.clientWidth;
 		};
 		measure();
+		ready = true;
 		ro = new ResizeObserver(measure);
 		const cellsEl = document.querySelector('.cells-area');
 		if (cellsEl) ro.observe(cellsEl);
@@ -604,6 +606,45 @@
 </svelte:head>
 
 <div class="min-h-screen bg-background text-foreground flex flex-col select-none">
+	{#if !ready}
+		<!-- Skeleton loading state -->
+		<div class="flex flex-col items-center pt-8 pb-6 px-4">
+			<!-- Header skeleton -->
+			<div class="flex items-center gap-3 mb-6">
+				<div class="h-6 w-6 rounded bg-muted-foreground/10 animate-pulse"></div>
+				<div class="h-6 w-32 rounded bg-muted-foreground/10 animate-pulse"></div>
+			</div>
+
+			<!-- Search box skeleton -->
+			<div class="w-full max-w-4xl flex flex-col gap-3">
+				<div class="h-10 rounded-lg bg-muted-foreground/10 animate-pulse"></div>
+
+				<!-- Date navigator skeleton -->
+				<div class="flex items-center gap-1 justify-center">
+					<div class="h-8 w-8 rounded-md bg-muted-foreground/10 animate-pulse"></div>
+					<div class="h-8 w-8 rounded-md bg-muted-foreground/10 animate-pulse"></div>
+					<div class="h-10 w-64 rounded-md bg-muted-foreground/10 animate-pulse"></div>
+					<div class="h-8 w-8 rounded-md bg-muted-foreground/10 animate-pulse"></div>
+				</div>
+			</div>
+		</div>
+
+		<!-- Grid skeleton -->
+		<div class="flex-1 px-4 pb-8">
+			<div class="max-w-6xl mx-auto space-y-1">
+				{#each Array(3) as _}
+					<div class="flex items-center gap-0">
+						<div class="w-6 shrink-0"></div>
+						<div class="w-38 shrink-0 pr-2">
+							<div class="h-4 w-24 rounded bg-muted-foreground/10 animate-pulse mb-1"></div>
+							<div class="h-3 w-32 rounded bg-muted-foreground/10 animate-pulse"></div>
+						</div>
+						<div class="flex-1 h-10 rounded bg-muted-foreground/10 animate-pulse"></div>
+					</div>
+				{/each}
+			</div>
+		</div>
+	{:else}
 	<!-- Header -->
 	<div class="flex flex-col items-center pt-8 pb-6 px-4">
 		<div class="flex items-center gap-3 mb-6">
@@ -937,5 +978,6 @@
 		<div class="flex-1 flex items-center justify-center text-muted-foreground">
 			<p>Type to search and add timezones</p>
 		</div>
+	{/if}
 	{/if}
 </div>
