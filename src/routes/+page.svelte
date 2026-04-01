@@ -1146,7 +1146,7 @@ function handleMarkerLineClick(e: MouseEvent, markerId: number) {
 			<div class="max-w-6xl mx-auto">
 				<!-- Marker creation strip + labels above the grid -->
 				<!-- svelte-ignore a11y_no_static_element_interactions -->
-				<div class="flex"
+				<div class="flex relative z-30"
 					onmousedown={handleCreateStripMouseDown}
 					onmousemove={handleCreateStripMouseMove}
 					onmouseup={handleCreateStripMouseUp}
