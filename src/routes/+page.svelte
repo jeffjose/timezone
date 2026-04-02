@@ -748,7 +748,7 @@
 			} else {
 				d += ` L ${x} ${y}`;
 			}
-			prevLocalH = localH;
+			prevProgress = progress;
 		}
 		d += ` L 100 ${height} L 0 ${height} Z`;
 		return d;
