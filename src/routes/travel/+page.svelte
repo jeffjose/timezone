@@ -399,28 +399,28 @@
 	}
 
 	// Per-day daylight arc segments — returns one path + color per day
-	function getDaylightArcs(tzId: string, startHour: number, endHour: number): { path: string; strokePath: string; color: { r: number; g: number; b: number }; dayOffset: number }[] {
+	// Colors are based on the home timezone's calendar date so Apr 2 = blue everywhere
+	function getDaylightArcs(tzId: string, startHour: number, endHour: number, homeTzId: string): { path: string; strokePath: string; color: { r: number; g: number; b: number }; dayOffset: number }[] {
 		const offsetMinutes = getTimezoneOffset(tzId, new Date());
+		const homeOffsetMinutes = getTimezoneOffset(homeTzId, new Date());
 		const range = endHour - startHour;
 		const height = 40;
 		const maxArc = height * 0.65;
 		const sampleRate = 8;
 
-		// Figure out which days are covered
-		const todayStart = new Date();
-		todayStart.setHours(0, 0, 0, 0);
-
-		// Find midnight boundaries in this timezone within the range
+		// Day boundaries use the ROW's timezone (midnight in that tz)
 		const startLocalHour = (startHour * 60 + offsetMinutes) / 60;
 		const firstMidnight = Math.ceil(startLocalHour / 24) * 24;
 		const firstMidnightUtc = (firstMidnight * 60 - offsetMinutes) / 60;
 
-		// Collect day boundaries (as UTC hours from trip start)
 		const dayBoundaries: number[] = [startHour];
 		for (let utcH = firstMidnightUtc; utcH < endHour; utcH += 24) {
 			if (utcH > startHour) dayBoundaries.push(utcH);
 		}
 		dayBoundaries.push(endHour);
+
+		// "Today" string in the home timezone (reference for color assignment)
+		const homeTodayStr = new Intl.DateTimeFormat('en-CA', { timeZone: homeTzId, year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
 
 		const arcs: { path: string; strokePath: string; color: { r: number; g: number; b: number }; dayOffset: number }[] = [];
 
@@ -430,12 +430,11 @@
 			const samples = Math.ceil((segEnd - segStart) * sampleRate);
 			if (samples < 2) continue;
 
-			// Determine day offset from today in the row's timezone
+			// Determine calendar date in the HOME timezone for color consistency
 			const midUtcHour = (segStart + segEnd) / 2;
 			const absDate = new Date(tripSpan.startDate.getTime() + midUtcHour * 3600000);
-			const tzDateStr = new Intl.DateTimeFormat('en-CA', { timeZone: tzId, year: 'numeric', month: '2-digit', day: '2-digit' }).format(absDate);
-			const todayStr = new Intl.DateTimeFormat('en-CA', { timeZone: tzId, year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
-			const dayOffset = Math.round((new Date(tzDateStr).getTime() - new Date(todayStr).getTime()) / 86400000);
+			const homeDateStr = new Intl.DateTimeFormat('en-CA', { timeZone: homeTzId, year: 'numeric', month: '2-digit', day: '2-digit' }).format(absDate);
+			const dayOffset = Math.round((new Date(homeDateStr).getTime() - new Date(homeTodayStr).getTime()) / 86400000);
 			const color = getDayColor(dayOffset);
 
 			const points: { x: number; y: number }[] = [];
@@ -500,11 +499,10 @@
 	}
 
 	// Midnight positions for a timezone within the timeline (as percentages)
-	function getMidnightPositions(tzId: string, startHour: number, endHour: number): { pct: number; label: string; color: { r: number; g: number; b: number } }[] {
+	function getMidnightPositions(tzId: string, startHour: number, endHour: number, homeTzId: string): { pct: number; label: string; color: { r: number; g: number; b: number } }[] {
 		const offsetMinutes = getTimezoneOffset(tzId, new Date());
 		const range = endHour - startHour;
-		const todayStart = new Date();
-		todayStart.setHours(0, 0, 0, 0);
+		const homeTodayStr = new Intl.DateTimeFormat('en-CA', { timeZone: homeTzId, year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
 		const results: { pct: number; label: string; color: { r: number; g: number; b: number } }[] = [];
 
 		const startLocalHour = (startHour * 60 + offsetMinutes) / 60;
@@ -516,10 +514,9 @@
 			if (pct > 1 && pct < 99) {
 				const absDate = new Date(tripSpan.startDate.getTime() + utcH * 3600000);
 				const label = new Intl.DateTimeFormat('en-US', { timeZone: tzId, month: 'short', day: 'numeric', weekday: 'short' }).format(absDate);
-				// Day offset in this timezone
-				const tzDateStr = new Intl.DateTimeFormat('en-CA', { timeZone: tzId, year: 'numeric', month: '2-digit', day: '2-digit' }).format(absDate);
-				const todayStr = new Intl.DateTimeFormat('en-CA', { timeZone: tzId, year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
-				const dayOffset = Math.round((new Date(tzDateStr).getTime() - new Date(todayStr).getTime()) / 86400000);
+				// Color based on HOME timezone's calendar date
+				const homeDateStr = new Intl.DateTimeFormat('en-CA', { timeZone: homeTzId, year: 'numeric', month: '2-digit', day: '2-digit' }).format(absDate);
+				const dayOffset = Math.round((new Date(homeDateStr).getTime() - new Date(homeTodayStr).getTime()) / 86400000);
 				const color = getDayColor(dayOffset);
 				results.push({ pct, label, color });
 			}
@@ -531,6 +528,7 @@
 	function handleTimelineMouseDown(e: MouseEvent) {
 		if ((e.target as HTMLElement).closest('button')) return;
 		isDragging = true;
+		hoverPct = null;
 		dragStartX = e.clientX;
 		dragStartCenter = centerHour;
 		// Measure timeline width from a cells-area element
@@ -821,14 +819,14 @@
 								preserveAspectRatio="none"
 							>
 								<defs>
-									{#each getDaylightArcs(row.tzId, timelineStart, timelineEnd) as arc, arcIdx}
+									{#each getDaylightArcs(row.tzId, timelineStart, timelineEnd, homeTz) as arc, arcIdx}
 										<linearGradient id="day-grad-{rowIdx}-{arcIdx}" x1="0" y1="0" x2="0" y2="1">
 											<stop offset="0%" stop-color="rgb({arc.color.r}, {arc.color.g}, {arc.color.b})" stop-opacity="0.15" />
 											<stop offset="100%" stop-color="rgb({arc.color.r}, {arc.color.g}, {arc.color.b})" stop-opacity="0.0" />
 										</linearGradient>
 									{/each}
 								</defs>
-								{#each getDaylightArcs(row.tzId, timelineStart, timelineEnd) as arc, arcIdx}
+								{#each getDaylightArcs(row.tzId, timelineStart, timelineEnd, homeTz) as arc, arcIdx}
 									<!-- Filled area -->
 									<path
 										d={arc.path}
@@ -847,7 +845,7 @@
 							</svg>
 
 							<!-- Per-row midnight gridlines (colored) -->
-							{#each getMidnightPositions(row.tzId, timelineStart, timelineEnd) as midnight}
+							{#each getMidnightPositions(row.tzId, timelineStart, timelineEnd, homeTz) as midnight}
 								<div
 									class="absolute inset-y-0 w-px"
 									style="left: {midnight.pct}%; background: rgba({midnight.color.r}, {midnight.color.g}, {midnight.color.b}, 0.3)"
