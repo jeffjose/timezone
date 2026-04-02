@@ -1200,16 +1200,21 @@ function handleMarkerLineClick(e: MouseEvent, markerId: number) {
 
 			<!-- Date navigator -->
 			<div class="flex items-center gap-1 justify-center">
-				<button
-					type="button"
-					onclick={goToday}
-					class="p-1.5 rounded-md transition-colors {Math.abs(centerHour - currentHourFrac) < 0.5
-						? 'text-muted-foreground/30 cursor-default'
-						: 'text-blue-400 hover:bg-blue-500/15'}"
-					title="Go to today"
-				>
-					<CalendarDays class="h-4 w-4" />
-				</button>
+				<div class="relative group/today">
+					<button
+						type="button"
+						onclick={goToday}
+						class="p-1.5 rounded-md transition-colors {Math.abs(centerHour - currentHourFrac) < 0.5
+							? 'text-muted-foreground/30 cursor-default'
+							: 'text-blue-400 hover:bg-blue-500/15'}"
+					>
+						<CalendarDays class="h-4 w-4" />
+					</button>
+					<div class="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-2.5 py-1.5 rounded-md bg-popover border border-border shadow-lg text-xs text-popover-foreground whitespace-nowrap opacity-0 group-hover/today:opacity-100 pointer-events-none transition-opacity">
+						Go to today
+						<div class="absolute top-full left-1/2 -translate-x-1/2 w-2 h-2 bg-popover border-r border-b border-border rotate-45 -mt-1"></div>
+					</div>
+				</div>
 
 				<button
 					type="button"
@@ -1262,17 +1267,22 @@ function handleMarkerLineClick(e: MouseEvent, markerId: number) {
 					<ChevronRight class="h-4 w-4" />
 				</button>
 
-				<button
-					type="button"
-					onclick={() => showWorkingHours = !showWorkingHours}
-					title="Highlight working hours (9 AM – 5 PM)"
-					class="p-1.5 rounded-md transition-colors ml-1
-						{showWorkingHours
-							? 'bg-amber-500/15 text-amber-500'
-							: 'text-muted-foreground hover:text-foreground hover:bg-accent'}"
-				>
-					<Briefcase class="h-4 w-4" />
-				</button>
+				<div class="relative group/work ml-1">
+					<button
+						type="button"
+						onclick={() => showWorkingHours = !showWorkingHours}
+						class="p-1.5 rounded-md transition-colors
+							{showWorkingHours
+								? 'bg-amber-500/15 text-amber-500'
+								: 'text-muted-foreground hover:text-foreground hover:bg-accent'}"
+					>
+						<Briefcase class="h-4 w-4" />
+					</button>
+					<div class="absolute bottom-full right-0 mb-2 px-2.5 py-1.5 rounded-md bg-popover border border-border shadow-lg text-xs text-popover-foreground whitespace-nowrap opacity-0 group-hover/work:opacity-100 pointer-events-none transition-opacity">
+						{showWorkingHours ? 'Hide' : 'Show'} working hours (9–5)
+						<div class="absolute top-full right-3 w-2 h-2 bg-popover border-r border-b border-border rotate-45 -mt-1"></div>
+					</div>
+				</div>
 			</div>
 		</div>
 	</div>
