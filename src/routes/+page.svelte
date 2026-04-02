@@ -758,38 +758,57 @@
 	}
 
 	// Day progress path — sawtooth descending from top to bottom
-	// Normal: 12a(top) → 12a(bottom), Working hours: 9a(top) → 5p(bottom)
+	// Normal: 12a(top) → 12a(bottom) — one sawtooth per day
+	// Working hours: three sawtooths — 7a→9a, 9a→5p, 5p→11p
 	function getProgressPath(tz: string, workMode: boolean = false): string {
 		const height = 40;
 		const offsetMinutes = getTimezoneOffset(tz, offsetBase);
-		const rangeStart = workMode ? 9 : 0;   // hour where line starts at top
-		const rangeLen = workMode ? 8 : 24;     // hours in one cycle
+
+		// Define ranges: each is [start, end) in local hours
+		const ranges = workMode
+			? [{ start: 7, end: 9 }, { start: 9, end: 17 }, { start: 17, end: 23 }]
+			: [{ start: 0, end: 24 }];
 
 		function localFracHour(utcHour: number): number {
 			const localMinutes = utcHour * 60 + offsetMinutes;
 			return (((localMinutes / 60) % 24) + 24) % 24;
 		}
 
+		// Find which range a local hour falls into, return progress (0=top, 1=bottom)
+		function getProgress(localH: number): { progress: number; inRange: boolean } {
+			for (const r of ranges) {
+				if (localH >= r.start && localH < r.end) {
+					return { progress: (localH - r.start) / (r.end - r.start), inRange: true };
+				}
+			}
+			return { progress: 1, inRange: false }; // outside all ranges = bottom
+		}
+
 		let d = '';
 		let prevProgress = -1;
+		let prevInRange = false;
 		const steps = TOTAL_CELLS * 2;
 
 		for (let i = 0; i <= steps; i++) {
 			const hourIndex = i / 2;
 			const utcHour = renderStart + hourIndex;
 			const localH = localFracHour(utcHour);
-			// How far through the range (0=top, 1=bottom)
-			const hoursIntoRange = ((localH - rangeStart + 24) % 24);
-			const progress = workMode
-				? (hoursIntoRange >= rangeLen ? 1 : hoursIntoRange / rangeLen)  // clamp outside range to bottom
-				: hoursIntoRange / rangeLen;
+			const { progress, inRange } = getProgress(localH);
 			const x = (hourIndex / TOTAL_CELLS) * 100;
 			const y = progress * height;
 
 			if (i === 0) {
 				d = `M ${x} ${y}`;
-			} else if (progress < prevProgress - 0.1) {
-				// Range boundary crossing: drop to bottom, jump to top
+			} else if (inRange && !prevInRange) {
+				// Entering a range: go to bottom then jump to top
+				d += ` L ${x} ${height}`;
+				d += ` L ${x} 0`;
+				d += ` L ${x} ${y}`;
+			} else if (!inRange && prevInRange) {
+				// Leaving a range: drop to bottom
+				d += ` L ${x} ${height}`;
+			} else if (inRange && prevInRange && progress < prevProgress - 0.05) {
+				// Range boundary (e.g. midnight wrap): reset
 				d += ` L ${x} ${height}`;
 				d += ` L ${x} 0`;
 				d += ` L ${x} ${y}`;
@@ -797,6 +816,7 @@
 				d += ` L ${x} ${y}`;
 			}
 			prevProgress = progress;
+			prevInRange = inRange;
 		}
 		d += ` L 100 ${height} L 0 ${height} Z`;
 		return d;
@@ -815,10 +835,6 @@
 	let cachedFullDaylightPaths = $derived(
 		new Map(selectedTimezones.map(e => [e.id, getDaylightPath(e.id, false)]))
 	);
-	let cachedFullProgressPaths = $derived(
-		new Map(selectedTimezones.map(e => [e.id, getProgressPath(e.id, false)]))
-	);
-
 	function formatTimeWithSeconds(tz: string): string {
 		return new Intl.DateTimeFormat('en-US', {
 			timeZone: tz,
@@ -1816,7 +1832,7 @@ function handleMarkerLineClick(e: MouseEvent, markerId: number) {
 													{/each}
 												</clipPath>
 												<path
-													d={(arcMode === 'progress' ? cachedFullProgressPaths.get(entry.id) : cachedFullDaylightPaths.get(entry.id)) ?? ''}
+													d={(arcMode === 'progress' ? cachedProgressPaths.get(entry.id) : cachedFullDaylightPaths.get(entry.id)) ?? ''}
 													fill="url(#daylight-{rowIndex})"
 													stroke="rgba(255,255,255,0.10)"
 													stroke-width="0.4"
