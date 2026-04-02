@@ -714,13 +714,14 @@
 		const rangeStart = workMode ? 9 : 0;
 		const rangeLen = workMode ? 8 : 24;
 		const peakHour = rangeStart + rangeLen / 2; // center of range
+		const offsetMinutes = getTimezoneOffset(tz, offsetBase);
 
 		for (let i = 0; i <= steps; i++) {
 			const hourIndex = i / 2;
-			const hour = renderStart + hourIndex;
-			const actualHour = getTzHourValue(tz, Math.floor(hour));
-			const frac = hour - Math.floor(hour);
-			const continuousHour = actualHour + frac;
+			const utcHour = renderStart + hourIndex;
+			// Use continuous fractional local hour for smooth curve
+			const localMinutes = utcHour * 60 + offsetMinutes;
+			const continuousHour = (((localMinutes / 60) % 24) + 24) % 24;
 			let val: number;
 			if (workMode) {
 				// Single hump from rangeStart to rangeStart+rangeLen, zero outside
