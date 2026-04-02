@@ -46,6 +46,17 @@
 	let ready = $state(false);
 	let hoverPct: number | null = $state(null);
 
+	// Pan state — centerHour is hours from tripSpan.startDate at center of viewport
+	const initNow = new Date();
+	const initStart = new Date();
+	initStart.setUTCHours(0, 0, 0, 0);
+	initStart.setDate(initStart.getDate() - 1);
+	let centerHour = $state((initNow.getTime() - initStart.getTime()) / 3600000); // center on now
+	let isDragging = $state(false);
+	let dragStartX = $state(0);
+	let dragStartCenter = $state(0);
+	let timelineWidth = $state(1);
+
 	// --- Derived ---
 	let sortedLegs = $derived(
 		[...legs].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
@@ -516,8 +527,32 @@
 		return results;
 	}
 
+	// --- Drag to pan ---
+	function handleTimelineMouseDown(e: MouseEvent) {
+		if ((e.target as HTMLElement).closest('button')) return;
+		isDragging = true;
+		dragStartX = e.clientX;
+		dragStartCenter = centerHour;
+		// Measure timeline width from a cells-area element
+		const cellsEl = (e.currentTarget as HTMLElement).querySelector('.cells-area');
+		if (cellsEl) timelineWidth = cellsEl.getBoundingClientRect().width;
+	}
+
+	function handleDragMove(e: MouseEvent) {
+		if (!isDragging) return;
+		const dx = e.clientX - dragStartX;
+		const hoursPerPx = TIMELINE_HOURS / timelineWidth;
+		centerHour = dragStartCenter - dx * hoursPerPx;
+	}
+
+	function handleDragEnd() {
+		isDragging = false;
+		hoverPct = null;
+	}
+
 	// --- Hover ---
 	function handleTimelineMouseMove(e: MouseEvent) {
+		if (isDragging) return;
 		const cellsEl = (e.currentTarget as HTMLElement).querySelector('.cells-area');
 		if (!cellsEl) return;
 		const rect = cellsEl.getBoundingClientRect();
@@ -529,7 +564,8 @@
 	}
 
 	function getHoveredTimeForTz(tzId: string, pct: number): { time: string; date: string } {
-		const utcHour = (pct / 100) * TIMELINE_HOURS;
+		const timelineStart = centerHour - TIMELINE_HOURS / 2;
+		const utcHour = timelineStart + (pct / 100) * TIMELINE_HOURS;
 		const absDate = new Date(tripSpan.startDate.getTime() + utcHour * 3600000);
 		const time = new Intl.DateTimeFormat('en-US', {
 			timeZone: tzId,
@@ -560,6 +596,8 @@
 <svelte:window
 	onkeydown={handleGlobalKeydown}
 	onclick={handleClickOutside}
+	onmousemove={handleDragMove}
+	onmouseup={handleDragEnd}
 />
 
 <svelte:head>
@@ -696,8 +734,8 @@
 	<!-- Timeline visualization — horizontal: time on X (left→right), cities as rows on Y -->
 	{#if legs.length >= 1}
 		{@const homeTz = legs[0].tzId}
-		{@const timelineStart = 0}
-		{@const timelineEnd = TIMELINE_HOURS}
+		{@const timelineStart = centerHour - TIMELINE_HOURS / 2}
+		{@const timelineEnd = centerHour + TIMELINE_HOURS / 2}
 		{@const timelineRange = TIMELINE_HOURS}
 		{@const timeLabels = getTimeLabels(timelineStart, timelineEnd, homeTz)}
 		{@const nowPct = ((nowHourFromStart - timelineStart) / timelineRange) * 100}
@@ -706,8 +744,10 @@
 		<!-- svelte-ignore a11y_no_static_element_interactions -->
 		<div
 			class="flex-1 flex flex-col px-4 max-sm:px-2 pb-2 max-w-6xl mx-auto w-full min-h-0"
+			onmousedown={handleTimelineMouseDown}
 			onmousemove={handleTimelineMouseMove}
 			onmouseleave={handleTimelineMouseLeave}
+			style="cursor: {isDragging ? 'grabbing' : 'grab'}"
 		>
 			<!-- Blue dot (now indicator, top) -->
 			<div class="relative h-3 ml-44 max-sm:ml-0 shrink-0">
