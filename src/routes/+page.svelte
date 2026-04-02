@@ -712,7 +712,7 @@
 	// Day progress path — sawtooth: 12a at top (100), descends to bottom (0) by 11:59pm, resets at next 12a
 	function getProgressPath(tz: string): string {
 		const height = 40;
-		const maxArc = height * 0.65;
+		const maxArc = height;
 		let d = '';
 		let prevHour = -1;
 
