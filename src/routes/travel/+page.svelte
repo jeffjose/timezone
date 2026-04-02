@@ -406,10 +406,10 @@
 		const maxArc = height * 0.65;
 		const sampleRate = 8;
 
-		// Day boundaries use the HOME timezone so colors are consistent across all rows
-		const startHomeLocalHour = (startHour * 60 + homeOffsetMinutes) / 60;
-		const firstMidnight = Math.ceil(startHomeLocalHour / 24) * 24;
-		const firstMidnightUtc = (firstMidnight * 60 - homeOffsetMinutes) / 60;
+		// Day boundaries use the ROW's timezone (so arc humps are natural per-tz days)
+		const startLocalHour = (startHour * 60 + offsetMinutes) / 60;
+		const firstMidnight = Math.ceil(startLocalHour / 24) * 24;
+		const firstMidnightUtc = (firstMidnight * 60 - offsetMinutes) / 60;
 
 		const dayBoundaries: number[] = [startHour];
 		for (let utcH = firstMidnightUtc; utcH < endHour; utcH += 24) {
