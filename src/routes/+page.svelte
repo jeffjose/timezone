@@ -1665,7 +1665,7 @@ function handleMarkerLineClick(e: MouseEvent, markerId: number) {
 											<div
 												class="h-10 flex items-center justify-center relative shrink-0 z-10
 													{isMidnight ? 'border-l-2' : 'border-l border-l-border/20'}"
-												style="width: {cellWidth}px; background: {isOverlap ? 'rgba(34, 197, 94, 0.12)' : dayColor.bg}; {isMidnight ? `border-left-color: ${dayColor.border}` : ''} {showWorkingHours && !isWork ? 'opacity: 0.3;' : ''}"
+												style="width: {cellWidth}px; background: {isOverlap ? 'rgba(34, 197, 94, 0.12)' : dayColor.bg}; {isMidnight ? `border-left-color: ${dayColor.border}` : ''} {showWorkingHours && !isWork ? 'filter: grayscale(1) brightness(0.4);' : ''}"
 											>
 												{#if isMidnight}
 													{@const dateLabel = getMidnightDateLabel(tzHour.dayOffset)}
