@@ -374,7 +374,7 @@
 		const range = endHour - startHour;
 		const height = 40;
 		const maxArc = height * 0.65;
-		const sampleRate = 4; // samples per hour
+		const sampleRate = 8; // samples per hour
 		const totalSamples = range * sampleRate;
 		const points: { x: number; y: number }[] = [];
 
