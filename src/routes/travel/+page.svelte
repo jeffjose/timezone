@@ -12,7 +12,7 @@
 		type TimezoneInfo,
 		type SearchResult,
 	} from '$lib/timezones';
-	import { X, Search, Globe, Plane, ChevronRight, ChevronUp, ChevronDown, MapPin, Calendar, Plus, LocateFixed, Clock } from '@lucide/svelte';
+	import { X, Search, Globe, Plane, ChevronRight, ChevronUp, ChevronDown, MapPin, Calendar, Plus, LocateFixed } from '@lucide/svelte';
 
 	// --- Types ---
 	interface Leg {
@@ -44,6 +44,7 @@
 	// Timeline state
 	let now = $state(new Date());
 	let ready = $state(false);
+	let hoverPct: number | null = $state(null);
 
 	// --- Derived ---
 	let sortedLegs = $derived(
@@ -359,48 +360,12 @@
 		}).format(date);
 	}
 
-	function getLocalTimeAtHour(tzId: string, utcHour: number): string {
-		const d = new Date(tripSpan.startDate);
-		d.setTime(d.getTime() + utcHour * 3600000);
-		return formatLocalTime(tzId, d);
-	}
-
 	function getTimeDiff(tz1: string, tz2: string, date: Date): string {
 		const off1 = getTimezoneOffset(tz1, date);
 		const off2 = getTimezoneOffset(tz2, date);
 		const diff = (off2 - off1) / 60;
 		const sign = diff >= 0 ? '+' : '';
 		return `${sign}${diff}h`;
-	}
-
-	// Night blocks for a timezone — returns left/width percentages (horizontal)
-	function getNightBlocks(tzId: string, startHour: number, endHour: number): { left: number; width: number }[] {
-		const offsetMinutes = getTimezoneOffset(tzId, new Date());
-		const blocks: { left: number; width: number }[] = [];
-		const range = endHour - startHour;
-		let blockStart: number | null = null;
-
-		for (let h = startHour; h <= endHour; h += 0.5) {
-			const localHour = (((h * 60 + offsetMinutes) / 60) % 24 + 24) % 24;
-			const isNight = localHour >= 22 || localHour < 6;
-
-			if (isNight && blockStart === null) {
-				blockStart = h;
-			} else if (!isNight && blockStart !== null) {
-				blocks.push({
-					left: ((blockStart - startHour) / range) * 100,
-					width: ((h - blockStart) / range) * 100,
-				});
-				blockStart = null;
-			}
-		}
-		if (blockStart !== null) {
-			blocks.push({
-				left: ((blockStart - startHour) / range) * 100,
-				width: ((endHour - blockStart) / range) * 100,
-			});
-		}
-		return blocks;
 	}
 
 	// Daylight arc SVG path — cosine curve peaking at 1pm local time
@@ -465,6 +430,36 @@
 			});
 		}
 		return labels;
+	}
+
+	// --- Hover ---
+	function handleTimelineMouseMove(e: MouseEvent) {
+		const cellsEl = (e.currentTarget as HTMLElement).querySelector('.cells-area');
+		if (!cellsEl) return;
+		const rect = cellsEl.getBoundingClientRect();
+		hoverPct = Math.max(0, Math.min(100, ((e.clientX - rect.left) / rect.width) * 100));
+	}
+
+	function handleTimelineMouseLeave() {
+		hoverPct = null;
+	}
+
+	function getHoveredTimeForTz(tzId: string, pct: number): { time: string; date: string } {
+		const utcHour = (pct / 100) * TIMELINE_HOURS;
+		const absDate = new Date(tripSpan.startDate.getTime() + utcHour * 3600000);
+		const time = new Intl.DateTimeFormat('en-US', {
+			timeZone: tzId,
+			hour: 'numeric',
+			minute: '2-digit',
+			hour12: true,
+		}).format(absDate);
+		const date = new Intl.DateTimeFormat('en-US', {
+			timeZone: tzId,
+			weekday: 'short',
+			month: 'short',
+			day: 'numeric',
+		}).format(absDate);
+		return { time, date };
 	}
 
 	// --- Lifecycle ---
@@ -623,99 +618,88 @@
 		{@const timeLabels = getTimeLabels(timelineStart, timelineEnd, homeTz)}
 		{@const nowPct = ((nowHourFromStart - timelineStart) / timelineRange) * 100}
 		{@const nowInRange = nowPct >= 0 && nowPct <= 100}
-		{@const allRows = [...legTimelines, { id: -1, city: 'Body Clock', tzId: homeTz, date: legs[0].date, offsetMin: getTimezoneOffset(homeTz, new Date(legs[0].date)), abbr: getTimezoneAbbr(homeTz, new Date(legs[0].date)), offsetStr: formatOffset(getTimezoneOffset(homeTz, new Date(legs[0].date))), arrivalHour: legTimelines[0].arrivalHour, departureHour: legTimelines[legTimelines.length - 1].departureHour, isBodyClock: true }]}
 
-		<div class="flex-1 flex flex-col px-4 max-sm:px-2 pb-2 max-w-6xl mx-auto w-full min-h-0">
-			<!-- X-axis: time labels (top) -->
+		<!-- svelte-ignore a11y_no_static_element_interactions -->
+		<div
+			class="flex-1 flex flex-col px-4 max-sm:px-2 pb-2 max-w-6xl mx-auto w-full min-h-0"
+			onmousemove={handleTimelineMouseMove}
+			onmouseleave={handleTimelineMouseLeave}
+		>
+			<!-- Blue dot + X-axis labels (top) -->
 			<div class="relative h-6 ml-44 max-sm:ml-0 shrink-0 mb-1">
+				<!-- Blue dot at now position -->
+				{#if nowInRange}
+					<div
+						class="absolute bottom-0 w-[10px] h-[10px] rounded-full bg-blue-500 z-20 -translate-x-1/2 translate-y-1/2 pointer-events-none"
+						style="left: {nowPct}%"
+					></div>
+				{/if}
+				<!-- Date labels only (at midnight boundaries) -->
 				{#each timeLabels as label}
 					{@const pct = ((label.hour - timelineStart) / timelineRange) * 100}
-					{#if pct >= 0 && pct <= 100}
+					{#if pct >= 0 && pct <= 100 && label.dateLabel}
 						<div
 							class="absolute bottom-0 -translate-x-1/2"
 							style="left: {pct}%"
 						>
-							{#if label.dateLabel}
-								<div class="text-[9px] text-muted-foreground/70 font-medium whitespace-nowrap">{label.dateLabel}</div>
-							{/if}
-							<div class="text-[10px] text-muted-foreground/40 tabular-nums">{label.label}</div>
+							<div class="text-[9px] text-muted-foreground/70 font-medium whitespace-nowrap">{label.dateLabel}</div>
 						</div>
 					{/if}
 				{/each}
 			</div>
 
-			<!-- Rows -->
-			<div class="flex flex-col flex-1 min-h-0 gap-1">
-				{#each allRows as row, rowIdx}
-					{@const isBodyClock = 'isBodyClock' in row && row.isBodyClock}
-					{@const nightBlocks = getNightBlocks(row.tzId, timelineStart, timelineEnd)}
-					{@const arrivalPct = Math.max(0, ((row.arrivalHour - timelineStart) / timelineRange) * 100)}
-					{@const departurePct = Math.min(100, ((row.departureHour - timelineStart) / timelineRange) * 100)}
-					{@const stayWidth = departurePct - arrivalPct}
-					{@const timeDiff = rowIdx > 0 && !isBodyClock ? getTimeDiff(legTimelines[0].tzId, row.tzId, new Date(row.date)) : null}
-
-					<!-- Separator before body clock -->
-					{#if isBodyClock}
-						<div class="border-t border-border/20 mt-1 pt-1"></div>
-					{/if}
+			<!-- Rows + overlays -->
+			<div class="flex flex-col flex-1 min-h-0 gap-1 relative">
+				{#each legTimelines as row, rowIdx}
+					{@const timeDiff = rowIdx > 0 ? getTimeDiff(legTimelines[0].tzId, row.tzId, new Date(row.date)) : null}
 
 					<div class="flex items-stretch gap-0 flex-1 min-h-0">
 						<!-- Row label -->
 						<div class="group w-44 max-sm:hidden shrink-0 flex items-center justify-end pr-3 relative">
-							{#if isBodyClock}
-								<div class="text-right">
-									<div class="text-xs font-medium text-amber-500/60 flex items-center justify-end gap-1">
-										<Clock class="h-3 w-3" />
-										Body Clock
+							<!-- Reorder buttons -->
+							<div class="absolute left-0 top-1/2 -translate-y-1/2 flex flex-col opacity-0 group-hover:opacity-100 transition-opacity">
+								{#if rowIdx > 0}
+									<button
+										type="button"
+										onclick={() => moveLeg(rowIdx, -1)}
+										class="p-0.5 rounded hover:bg-accent text-muted-foreground hover:text-foreground transition-colors"
+									>
+										<ChevronUp class="h-3 w-3" />
+									</button>
+								{/if}
+								{#if rowIdx < legs.length - 1}
+									<button
+										type="button"
+										onclick={() => moveLeg(rowIdx, 1)}
+										class="p-0.5 rounded hover:bg-accent text-muted-foreground hover:text-foreground transition-colors"
+									>
+										<ChevronDown class="h-3 w-3" />
+									</button>
+								{/if}
+							</div>
+							<div class="text-right">
+								<div class="flex items-center gap-1.5 justify-end">
+									<span class="font-medium text-sm text-secondary-foreground truncate">{row.city}</span>
+								</div>
+								{#if hoverPct !== null}
+									{@const hoveredTime = getHoveredTimeForTz(row.tzId, hoverPct)}
+									<div class="flex items-baseline gap-1 justify-end">
+										<span class="text-xs font-semibold text-foreground">{hoveredTime.time}</span>
+										<span class="text-[10px] text-muted-foreground">{hoveredTime.date}</span>
 									</div>
-									<div class="text-[10px] text-muted-foreground/50">{legs[0].city} time</div>
-								</div>
-							{:else}
-								<!-- Reorder buttons -->
-								<div class="absolute left-0 top-1/2 -translate-y-1/2 flex flex-col opacity-0 group-hover:opacity-100 transition-opacity">
-									{#if rowIdx > 0}
-										<button
-											type="button"
-											onclick={() => moveLeg(rowIdx, -1)}
-											class="p-0.5 rounded hover:bg-accent text-muted-foreground hover:text-foreground transition-colors"
-										>
-											<ChevronUp class="h-3 w-3" />
-										</button>
-									{/if}
-									{#if rowIdx < legs.length - 1}
-										<button
-											type="button"
-											onclick={() => moveLeg(rowIdx, 1)}
-											class="p-0.5 rounded hover:bg-accent text-muted-foreground hover:text-foreground transition-colors"
-										>
-											<ChevronDown class="h-3 w-3" />
-										</button>
-									{/if}
-								</div>
-								<div class="text-right">
-									<div class="font-medium text-sm text-secondary-foreground truncate">{row.city}</div>
+								{:else}
 									<div class="text-[10px] text-muted-foreground/50">
 										{row.abbr} · {row.offsetStr}
 									</div>
 									{#if timeDiff}
 										<div class="text-[9px] text-muted-foreground/40">{timeDiff}</div>
 									{/if}
-								</div>
-							{/if}
+								{/if}
+							</div>
 						</div>
 
 						<!-- Horizontal strip -->
-						<div
-							class="relative flex-1 rounded-lg overflow-hidden {isBodyClock ? 'border border-dashed border-amber-500/20' : 'border border-border/50'} bg-card"
-						>
-							<!-- Night blocks -->
-							{#each nightBlocks as block}
-								<div
-									class="absolute inset-y-0 {isBodyClock ? 'bg-amber-500/[0.06]' : 'bg-foreground/[0.04]'}"
-									style="left: {block.left}%; width: {block.width}%"
-								></div>
-							{/each}
-
+						<div class="relative flex-1 rounded-lg overflow-hidden border border-border/50 bg-card cells-area">
 							<!-- Daylight arc -->
 							<svg
 								class="absolute inset-0 w-full h-full pointer-events-none"
@@ -724,77 +708,45 @@
 							>
 								<path
 									d={getDaylightPath(row.tzId, timelineStart, timelineEnd)}
-									fill={isBodyClock ? 'rgb(245, 158, 11)' : 'white'}
-									fill-opacity={isBodyClock ? 0.08 : 0.06}
-									stroke={isBodyClock ? 'rgb(245, 158, 11)' : 'white'}
-									stroke-opacity={isBodyClock ? 0.15 : 0.1}
+									fill="white"
+									fill-opacity="0.06"
+									stroke="white"
+									stroke-opacity="0.1"
 									stroke-width="0.4"
 								/>
 							</svg>
 
-							<!-- Hour gridlines -->
+							<!-- Midnight gridlines only -->
 							{#each timeLabels as label}
 								{@const pct = ((label.hour - timelineStart) / timelineRange) * 100}
-								{#if pct > 1 && pct < 99}
+								{#if pct > 1 && pct < 99 && label.dateLabel}
 									<div
-										class="absolute inset-y-0 w-px {isBodyClock ? 'bg-amber-500/10' : 'bg-border/30'}"
+										class="absolute inset-y-0 w-px bg-border/30"
 										style="left: {pct}%"
 									></div>
-									<!-- Local time at this gridline -->
-									<div
-										class="absolute bottom-0.5 text-[9px] -translate-x-1/2 {isBodyClock ? 'text-amber-500/30' : 'text-muted-foreground/30'}"
-										style="left: {pct}%"
-									>
-										{getLocalTimeAtHour(row.tzId, label.hour)}
-									</div>
 								{/if}
 							{/each}
 
-							<!-- Stay period highlight (not for body clock) -->
-							{#if !isBodyClock}
-								<div
-									class="absolute inset-y-0 border-x-2 border-blue-500/30 bg-blue-500/[0.08]"
-									style="left: {arrivalPct}%; width: {stayWidth}%"
-								>
-									<div class="absolute top-0.5 left-1 text-[9px] font-medium text-blue-400/70">
-										{getLocalTimeAtHour(row.tzId, row.arrivalHour)}
-									</div>
-									<div class="absolute top-0.5 right-1 text-[8px] text-blue-400/50">
-										{formatDateShort(row.date)}
-									</div>
-								</div>
-							{/if}
-
-							<!-- Now line (vertical) -->
+							<!-- Now line (blue, vertical) -->
 							{#if nowInRange}
 								<div
-									class="absolute inset-y-0 w-px bg-red-500/60"
+									class="absolute inset-y-0 w-[2px] bg-blue-500 z-20 -translate-x-1/2"
 									style="left: {nowPct}%"
 								></div>
 							{/if}
 						</div>
 					</div>
 				{/each}
-			</div>
 
-			<!-- Legend -->
-			<div class="mt-2 flex items-center gap-4 text-[10px] text-muted-foreground/50 justify-center shrink-0">
-				<span class="flex items-center gap-1">
-					<span class="w-3 h-3 rounded-sm bg-blue-500/[0.15] border border-blue-500/30"></span>
-					Your stay
-				</span>
-				<span class="flex items-center gap-1">
-					<span class="w-3 h-3 rounded-sm bg-foreground/[0.04]"></span>
-					Night (local)
-				</span>
-				<span class="flex items-center gap-1">
-					<span class="w-3 h-3 rounded-sm bg-amber-500/[0.08] border border-dashed border-amber-500/20"></span>
-					Body clock
-				</span>
-				<span class="flex items-center gap-1">
-					<span class="w-px h-3 bg-red-500/60"></span>
-					Now
-				</span>
+				<!-- Gray hover line spanning all rows (desktop only) -->
+				{#if hoverPct !== null}
+					<div class="absolute top-0 bottom-0 overflow-hidden pointer-events-none max-sm:hidden" style="left: 11rem; right: 0;">
+						<div
+							class="absolute top-0 bottom-0 w-[1px] bg-foreground/30 z-30 -translate-x-1/2"
+							style="left: {hoverPct}%"
+						></div>
+					</div>
+				{/if}
 			</div>
 		</div>
 
