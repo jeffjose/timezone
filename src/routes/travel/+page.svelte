@@ -700,19 +700,30 @@
 
 						<!-- Horizontal strip -->
 						<div class="relative flex-1 rounded-lg overflow-hidden border border-border/50 bg-card cells-area">
-							<!-- Daylight arc -->
+							<!-- Daylight arc (area chart with gradient fill) -->
 							<svg
 								class="absolute inset-0 w-full h-full pointer-events-none"
 								viewBox="0 0 100 40"
 								preserveAspectRatio="none"
 							>
+								<defs>
+									<linearGradient id="daylight-grad-{rowIdx}" x1="0" y1="0" x2="0" y2="1">
+										<stop offset="0%" stop-color="white" stop-opacity="0.15" />
+										<stop offset="100%" stop-color="white" stop-opacity="0.0" />
+									</linearGradient>
+								</defs>
+								<!-- Filled area -->
 								<path
 									d={getDaylightPath(row.tzId, timelineStart, timelineEnd)}
-									fill="white"
-									fill-opacity="0.06"
+									fill="url(#daylight-grad-{rowIdx})"
+								/>
+								<!-- Stroke line on top -->
+								<path
+									d={getDaylightPath(row.tzId, timelineStart, timelineEnd)}
+									fill="none"
 									stroke="white"
-									stroke-opacity="0.1"
-									stroke-width="0.4"
+									stroke-opacity="0.2"
+									stroke-width="0.5"
 								/>
 							</svg>
 
