@@ -149,6 +149,18 @@
 	let renderStart = $derived(renderAnchor - BUFFER - 12);
 	let renderHours = $derived(Array.from({ length: TOTAL_CELLS }, (_, i) => renderStart + i));
 
+	// Visible hours: only cells on screen + small buffer for smooth scrolling
+	const VISIBLE_BUFFER = 4; // extra cells on each side
+	let visibleRange = $derived((() => {
+		const halfVisible = Math.ceil(containerWidth / cellWidth / 2) + VISIBLE_BUFFER;
+		const startHour = Math.floor(centerHour) - halfVisible;
+		const endHour = Math.floor(centerHour) + halfVisible;
+		return { start: startHour, end: endHour };
+	})());
+	let visibleRenderHours = $derived(
+		renderHours.filter(h => h >= visibleRange.start && h <= visibleRange.end)
+	);
+
 	// Re-anchor when centerHour drifts far enough — only when idle
 	$effect(() => {
 		const drift = Math.abs(centerHour - renderAnchor);
@@ -1754,7 +1766,7 @@ function handleMarkerLineClick(e: MouseEvent, markerId: number) {
 												/>
 												<!-- Bright version clipped to working hours -->
 												<clipPath id="work-clip-{rowIndex}">
-													{#each renderHours as hour}
+													{#each visibleRenderHours as hour}
 														{@const actualH = getTzHourValue(entry.id, hour)}
 														{#if actualH >= 9 && actualH < 17}
 															<rect x={((hour - renderStart) / TOTAL_CELLS) * 100} y="0" width={100 / TOTAL_CELLS} height="40" />
@@ -1779,7 +1791,9 @@ function handleMarkerLineClick(e: MouseEvent, markerId: number) {
 												/>
 											{/if}
 										</svg>
-										{#each renderHours as hour (hour)}
+										<!-- Spacer for virtualized cells before visible range -->
+										<div class="shrink-0" style="width: {(visibleRange.start - renderStart) * cellWidth}px"></div>
+										{#each visibleRenderHours as hour (hour)}
 											{@const tzHour = getHourForTimezone(entry.id, hour)}
 											{@const actualHour = getTzHourValue(entry.id, hour)}
 											{@const isNow = hour === (cachedNowCell.get(entry.id) ?? -1)}
