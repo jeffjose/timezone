@@ -113,6 +113,8 @@
 	let editingMarkerId: number | null = $state(null); // marker in edge-edit mode
 	let draggingEdge: 'start' | 'end' | null = $state(null); // which edge is being dragged
 	let markerMenuId: number | null = $state(null); // marker with open menu
+	// Marker dot tooltip state
+	let dotTooltip: { markerId: number; rowIndex: number; x: number; y: number; position: 'above' | 'below' } | null = $state(null);
 
 	// Derived
 	let showDropdown = $derived(searchFocused && query.length > 0 && (searchResults.length > 0 || isSearchingRemote));
@@ -843,6 +845,49 @@
 		return `${displayHour}:${String(m).padStart(2, '0')} ${period}`;
 	}
 
+	function formatMarkerTimeWithDate(utcHour: number, tz: string): { time: string; date: string; isDifferentDay: boolean } {
+		const offsetMinutes = getTimezoneOffset(tz, offsetBase);
+		const localTotalMinutes = utcHour * 60 + offsetMinutes;
+		const dayOffset = Math.floor(localTotalMinutes / (24 * 60));
+		const minuteInDay = ((localTotalMinutes % (24 * 60)) + 24 * 60) % (24 * 60);
+		const h = Math.floor(minuteInDay / 60);
+		const m = Math.round(minuteInDay % 60);
+		const displayHour = h % 12 || 12;
+		const period = h < 12 ? 'AM' : 'PM';
+		const time = `${displayHour}:${String(m).padStart(2, '0')} ${period}`;
+
+		const todayDate = new Date();
+		todayDate.setHours(0, 0, 0, 0);
+		const markerDate = new Date(todayDate.getTime() + dayOffset * 86400000);
+		const date = new Intl.DateTimeFormat('en-US', {
+			weekday: 'short',
+			month: 'short',
+			day: 'numeric',
+		}).format(markerDate);
+
+		return { time, date, isDifferentDay: dayOffset !== 0 };
+	}
+
+	function handleDotMouseEnter(e: MouseEvent, markerId: number, rowIndex: number) {
+		const dot = e.currentTarget as HTMLElement;
+		const rect = dot.getBoundingClientRect();
+		const viewportHeight = window.innerHeight;
+		// Auto-position: prefer above, fall back to below if too close to top
+		const spaceAbove = rect.top;
+		const position = spaceAbove < 60 ? 'below' : 'above';
+		dotTooltip = {
+			markerId,
+			rowIndex,
+			x: rect.left + rect.width / 2,
+			y: position === 'above' ? rect.top : rect.bottom,
+			position,
+		};
+	}
+
+	function handleDotMouseLeave() {
+		dotTooltip = null;
+	}
+
 	function addMarker(utcHour: number) {
 		const color = MARKER_COLORS[markers.length % MARKER_COLORS.length];
 		const id = nextMarkerId++;
@@ -1519,6 +1564,37 @@ function handleMarkerLineClick(e: MouseEvent, markerId: number) {
 											{/if}
 										{/if}
 									{/each}
+									<!-- Marker dots (per-row) -->
+									{#each markerPositions as marker}
+										{#if marker.visible}
+											{#if marker.isInterval}
+												<!-- Dots at both edges of interval -->
+												<!-- svelte-ignore a11y_no_static_element_interactions -->
+												<div
+													class="absolute top-1/2 -translate-x-1/2 -translate-y-1/2 w-[8px] h-[8px] rounded-full z-30 cursor-pointer hover:scale-150 transition-transform"
+													style="left: {marker.leftPct}%; background: {marker.color}; {panTransition}"
+													onmouseenter={(e) => handleDotMouseEnter(e, marker.id, rowIndex)}
+													onmouseleave={handleDotMouseLeave}
+												></div>
+												<!-- svelte-ignore a11y_no_static_element_interactions -->
+												<div
+													class="absolute top-1/2 -translate-x-1/2 -translate-y-1/2 w-[8px] h-[8px] rounded-full z-30 cursor-pointer hover:scale-150 transition-transform"
+													style="left: {marker.rightPct}%; background: {marker.color}; {panTransition}"
+													onmouseenter={(e) => handleDotMouseEnter(e, marker.id, rowIndex)}
+													onmouseleave={handleDotMouseLeave}
+												></div>
+											{:else}
+												<!-- Single dot for point marker -->
+												<!-- svelte-ignore a11y_no_static_element_interactions -->
+												<div
+													class="absolute top-1/2 -translate-x-1/2 -translate-y-1/2 w-[8px] h-[8px] rounded-full z-30 cursor-pointer hover:scale-150 transition-transform"
+													style="left: {marker.percent}%; background: {marker.color}; {panTransition}"
+													onmouseenter={(e) => handleDotMouseEnter(e, marker.id, rowIndex)}
+													onmouseleave={handleDotMouseLeave}
+												></div>
+											{/if}
+										{/if}
+									{/each}
 									<div
 										class="relative flex will-change-transform {smoothPan ? 'transition-transform duration-300 ease-in-out' : ''}"
 										style="transform: translateX({stripTranslateX + (cachedFractionalOffsets.get(entry.id) ?? 0) * cellWidth}px)"
@@ -1594,3 +1670,29 @@ function handleMarkerLineClick(e: MouseEvent, markerId: number) {
 		</div>
 	{/if}
 </div>
+
+<!-- Marker dot tooltip (fixed position, portaled outside grid) -->
+{#if dotTooltip}
+	{@const marker = markers.find(m => m.id === dotTooltip!.markerId)}
+	{@const tz = selectedTimezones[dotTooltip!.rowIndex]}
+	{#if marker && tz}
+		{@const info = formatMarkerTimeWithDate(marker.utcHour, tz.id)}
+		{@const endInfo = marker.utcHourEnd !== null ? formatMarkerTimeWithDate(marker.utcHourEnd, tz.id) : null}
+		<div
+			class="fixed z-50 pointer-events-none px-2.5 py-1.5 rounded-md shadow-lg border border-border/50 bg-popover text-popover-foreground text-xs whitespace-nowrap"
+			style="left: {dotTooltip.x}px; {dotTooltip.position === 'above' ? `bottom: ${window.innerHeight - dotTooltip.y + 8}px` : `top: ${dotTooltip.y + 8}px`}; transform: translateX(-50%);"
+		>
+			<div class="flex items-center gap-1.5">
+				<div class="w-[6px] h-[6px] rounded-full shrink-0" style="background: {marker.color}"></div>
+				{#if endInfo}
+					<span class="font-semibold">{formatMarkerTime(Math.min(marker.utcHour, marker.utcHourEnd ?? marker.utcHour), tz.id)} – {formatMarkerTime(Math.max(marker.utcHour, marker.utcHourEnd ?? marker.utcHour), tz.id)}</span>
+				{:else}
+					<span class="font-semibold">{info.time}</span>
+				{/if}
+			</div>
+			{#if info.isDifferentDay || (endInfo && endInfo.isDifferentDay)}
+				<div class="text-[10px] text-muted-foreground mt-0.5">{info.date}</div>
+			{/if}
+		</div>
+	{/if}
+{/if}
