@@ -12,7 +12,7 @@
 		type TimezoneInfo,
 		type SearchResult,
 	} from '$lib/timezones';
-	import { X, ChevronUp, ChevronDown, Search, Globe, ChevronLeft, ChevronRight, CalendarDays, Plus, EllipsisVertical, Trash2, Copy, MoveHorizontal, LocateFixed, Briefcase } from '@lucide/svelte';
+	import { X, ChevronUp, ChevronDown, Search, Globe, ChevronLeft, ChevronRight, CalendarDays, Plus, EllipsisVertical, Trash2, Copy, MoveHorizontal, LocateFixed, Briefcase, TrendingUp, Sunset } from '@lucide/svelte';
 	import { DropdownMenu } from 'bits-ui';
 
 	interface SelectedTz {
@@ -117,6 +117,8 @@
 	let dotTooltip: { markerId: number; rowIndex: number; x: number; y: number; position: 'above' | 'below' } | null = $state(null);
 	// Working hours highlight
 	let showWorkingHours = $state(false);
+	// Day progress arc mode: 'arc' (sine/cosine) or 'progress' (linear sawtooth)
+	let arcMode: 'arc' | 'progress' = $state('arc');
 
 	// Derived
 	let showDropdown = $derived(searchFocused && query.length > 0 && (searchResults.length > 0 || isSearchingRemote));
@@ -707,9 +709,40 @@
 		return d;
 	}
 
+	// Day progress path — linear sawtooth rising from 12a to 12p, falling from 12p to 12a
+	function getProgressPath(tz: string): string {
+		const points: { x: number; y: number }[] = [];
+		const height = 40;
+		const maxArc = height * 0.65;
+
+		for (let i = 0; i <= TOTAL_CELLS * 2; i++) {
+			const hourIndex = i / 2;
+			const hour = renderStart + hourIndex;
+			const actualHour = getTzHourValue(tz, Math.floor(hour));
+			const frac = hour - Math.floor(hour);
+			const continuousHour = actualHour + frac;
+			// Sawtooth: rises linearly 0→1 from 0h to 24h
+			const val = continuousHour / 24;
+			const x = (hourIndex / TOTAL_CELLS) * 100;
+			const y = height - val * maxArc;
+			points.push({ x, y });
+		}
+
+		let d = `M ${points[0].x} ${points[0].y}`;
+		for (let i = 1; i < points.length; i++) {
+			d += ` L ${points[i].x} ${points[i].y}`;
+		}
+		d += ` L 100 ${height} L 0 ${height} Z`;
+		return d;
+	}
+
 	// Cache daylight paths — only recompute when renderAnchor or timezones change, not on drag
 	let cachedDaylightPaths = $derived(
 		new Map(selectedTimezones.map(e => [e.id, getDaylightPath(e.id)]))
+	);
+
+	let cachedProgressPaths = $derived(
+		new Map(selectedTimezones.map(e => [e.id, getProgressPath(e.id)]))
 	);
 
 	function formatTimeWithSeconds(tz: string): string {
@@ -1283,6 +1316,27 @@ function handleMarkerLineClick(e: MouseEvent, markerId: number) {
 						<div class="absolute top-full left-1/2 -translate-x-1/2 w-2 h-2 bg-popover border-r border-b border-border rotate-45 -mt-1"></div>
 					</div>
 				</div>
+
+				<div class="relative group/arc ml-0.5">
+					<button
+						type="button"
+						onclick={() => arcMode = arcMode === 'arc' ? 'progress' : 'arc'}
+						class="p-1.5 rounded-md transition-colors
+							{arcMode === 'progress'
+								? 'bg-cyan-500/15 text-cyan-500'
+								: 'text-muted-foreground hover:text-foreground hover:bg-accent'}"
+					>
+						{#if arcMode === 'progress'}
+							<TrendingUp class="h-4 w-4" />
+						{:else}
+							<Sunset class="h-4 w-4" />
+						{/if}
+					</button>
+					<div class="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-2.5 py-1.5 rounded-md bg-popover border border-border shadow-lg text-xs text-popover-foreground whitespace-nowrap opacity-0 group-hover/arc:opacity-100 pointer-events-none transition-opacity">
+						{arcMode === 'arc' ? 'Switch to day progress' : 'Switch to daylight arc'}
+						<div class="absolute top-full left-1/2 -translate-x-1/2 w-2 h-2 bg-popover border-r border-b border-border rotate-45 -mt-1"></div>
+					</div>
+				</div>
 			</div>
 		</div>
 	</div>
@@ -1641,7 +1695,7 @@ function handleMarkerLineClick(e: MouseEvent, markerId: number) {
 											preserveAspectRatio="none"
 										>
 											<path
-												d={cachedDaylightPaths.get(entry.id) ?? ''}
+												d={(arcMode === 'progress' ? cachedProgressPaths.get(entry.id) : cachedDaylightPaths.get(entry.id)) ?? ''}
 												fill="url(#daylight-{rowIndex})"
 												stroke="rgba(255,255,255,0.15)"
 												stroke-width="0.4"
