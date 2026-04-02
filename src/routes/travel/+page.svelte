@@ -433,7 +433,7 @@
 		</a>
 
 		<!-- Search box -->
-		<div class="w-full max-w-3xl">
+		<div class="w-full max-w-4xl">
 			<div class="search-container relative">
 				<div
 					class="flex items-center gap-1.5 rounded-lg border border-border bg-card px-3 py-2 transition-colors focus-within:border-muted-foreground/50 overflow-hidden"
@@ -476,7 +476,7 @@
 							>
 								<span class="flex items-center gap-2">
 									<MapPin class="h-3.5 w-3.5 text-muted-foreground shrink-0" />
-									<span class="font-medium">{result.displayName || result.tz.city}</span>
+									<span class="font-medium text-secondary-foreground">{result.displayName || result.tz.city}</span>
 								</span>
 								<span class="text-xs text-muted-foreground">
 									{getTimezoneAbbr(result.tz.id)} · {formatOffset(getTimezoneOffset(result.tz.id))}
@@ -495,7 +495,7 @@
 				{@const parsed = parseQuery(query)}
 				{#if parsed.date}
 					<div class="mt-1 text-xs text-muted-foreground px-1">
-						Searching for <span class="font-medium text-foreground">{parsed.city}</span> on <span class="font-medium text-foreground">{formatDateFull(parsed.date)}</span>
+						Searching for <span class="font-medium text-secondary-foreground">{parsed.city}</span> on <span class="font-medium text-secondary-foreground">{formatDateFull(parsed.date)}</span>
 					</div>
 				{/if}
 			{/if}
@@ -503,34 +503,33 @@
 
 		<!-- Itinerary chips -->
 		{#if sortedLegs.length > 0}
-			<div class="flex items-center gap-2 mt-5 flex-wrap justify-center max-w-3xl w-full">
+			<div class="flex items-center gap-1.5 mt-5 flex-wrap justify-center max-w-4xl w-full">
 				{#each sortedLegs as leg, i}
 					{#if i > 0}
-						<ChevronRight class="h-4 w-4 text-muted-foreground/40 shrink-0" />
+						<ChevronRight class="h-3.5 w-3.5 text-muted-foreground/30 shrink-0 mx-0.5" />
 					{/if}
-					<div class="group relative inline-flex items-center gap-1.5 rounded-full border border-border bg-card pl-3 pr-1.5 py-1.5 text-sm transition-all hover:border-muted-foreground/50">
+					<div class="group inline-flex items-center gap-0 rounded-md bg-secondary text-sm transition-all hover:bg-secondary/80">
 						<button
 							type="button"
 							onclick={() => editLegCity(leg.id)}
-							class="flex items-center gap-1.5 hover:text-foreground transition-colors"
+							class="flex items-center gap-1.5 pl-2.5 pr-2 py-1.5 transition-colors rounded-l-md hover:bg-accent"
 						>
-							<MapPin class="h-3 w-3 text-muted-foreground" />
-							<span class="font-medium">{leg.city}</span>
+							<span class="text-secondary-foreground">{leg.city}</span>
 						</button>
-						<span class="text-muted-foreground/40">·</span>
-						<label class="flex items-center gap-1 cursor-pointer">
-							<Calendar class="h-3 w-3 text-muted-foreground" />
+						<span class="w-px h-4 bg-border/50"></span>
+						<label class="flex items-center gap-1.5 pl-2 pr-1.5 py-1.5 cursor-pointer hover:bg-accent transition-colors">
+							<Calendar class="h-3 w-3 text-muted-foreground/50" />
 							<input
 								type="date"
 								value={leg.date}
 								onchange={(e) => updateLegDate(leg.id, (e.target as HTMLInputElement).value)}
-								class="bg-transparent text-xs text-muted-foreground w-[90px] outline-none cursor-pointer hover:text-foreground transition-colors"
+								class="bg-transparent text-xs text-muted-foreground w-[90px] outline-none cursor-pointer hover:text-secondary-foreground transition-colors"
 							/>
 						</label>
 						<button
 							type="button"
 							onclick={() => removeLeg(leg.id)}
-							class="p-0.5 rounded-full text-muted-foreground/40 hover:text-foreground hover:bg-accent transition-colors opacity-0 group-hover:opacity-100"
+							class="p-1 mr-0.5 rounded text-muted-foreground/30 hover:text-secondary-foreground hover:bg-accent transition-colors opacity-0 group-hover:opacity-100"
 						>
 							<X class="h-3 w-3" />
 						</button>
@@ -549,7 +548,7 @@
 		{@const nowPct = ((nowHourFromStart - timelineStart) / timelineRange) * 100}
 		{@const nowInRange = nowPct >= 0 && nowPct <= 100}
 
-		<div class="flex-1 px-4 pb-8 max-w-5xl mx-auto w-full">
+		<div class="flex-1 px-4 pb-8 max-w-4xl mx-auto w-full">
 			<!-- UTC time axis (top) -->
 			<div class="relative h-8 mb-1 ml-[180px] max-sm:ml-[100px]">
 				{#each hourLabels as label}
@@ -595,12 +594,12 @@
 				<div class="flex items-stretch gap-0 mb-1">
 					<!-- Label -->
 					<div class="w-[180px] max-sm:w-[100px] shrink-0 flex flex-col justify-center pr-3 text-right">
-						<div class="font-medium text-sm truncate">{leg.city}</div>
-						<div class="text-[11px] text-muted-foreground">
+						<div class="font-medium text-sm text-secondary-foreground truncate">{leg.city}</div>
+						<div class="text-[11px] text-muted-foreground/70">
 							{leg.abbr} · {leg.offsetStr}
 						</div>
 						{#if timeDiff}
-							<div class="text-[10px] text-muted-foreground/60">{timeDiff} from home</div>
+							<div class="text-[10px] text-muted-foreground/50">{timeDiff} from home</div>
 						{/if}
 					</div>
 
@@ -671,7 +670,7 @@
 				<div class="mt-4 pt-4 border-t border-border/30">
 					<div class="flex items-stretch gap-0 mb-1">
 						<div class="w-[180px] max-sm:w-[100px] shrink-0 flex flex-col justify-center pr-3 text-right">
-							<div class="font-medium text-sm text-amber-500/80 flex items-center justify-end gap-1.5">
+							<div class="font-medium text-sm text-amber-500/60 flex items-center justify-end gap-1.5">
 								<Clock class="h-3.5 w-3.5" />
 								Body Clock
 							</div>
