@@ -1795,13 +1795,22 @@ function handleMarkerLineClick(e: MouseEvent, markerId: number) {
 												</linearGradient>
 											</defs>
 											{#if showWorkingHours}
-												<!-- Dimmed version for non-working hours -->
+												<!-- Dimmed version for off hours only (excludes core + extended) -->
+												<clipPath id="off-clip-{rowIndex}">
+													{#each visibleRenderHours as hour}
+														{@const actualH = getTzHourValue(entry.id, hour)}
+														{#if actualH < 7 || actualH >= 23}
+															<rect x={((hour - renderStart) / TOTAL_CELLS) * 100} y="0" width={100 / TOTAL_CELLS} height="40" />
+														{/if}
+													{/each}
+												</clipPath>
 												<path
 													d={(arcMode === 'progress' ? cachedProgressPaths.get(entry.id) : cachedDaylightPaths.get(entry.id)) ?? ''}
 													fill="url(#daylight-{rowIndex})"
 													stroke="rgba(255,255,255,0.05)"
 													stroke-width="0.4"
 													vector-effect="non-scaling-stroke"
+													clip-path="url(#off-clip-{rowIndex})"
 													opacity="0.3"
 												/>
 												<!-- Bright version clipped to working hours -->
