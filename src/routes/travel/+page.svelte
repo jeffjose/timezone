@@ -499,25 +499,16 @@
 			const dayOffset = Math.round((new Date(rowDateStr).getTime() - new Date(homeTodayStr).getTime()) / 86400000);
 			const color = getDayColor(dayOffset);
 
-			const points: { x: number; y: number }[] = [];
-			const samples = Math.ceil((segEnd - segStart) * sampleRate);
-			for (let i = 0; i <= samples; i++) {
-				const utcHour = segStart + (i / samples) * (segEnd - segStart);
-				const localMinutes = utcHour * 60 + offsetMinutes;
-				const localHour = (((localMinutes / 60) % 24) + 24) % 24;
-				const progress = localHour / 24; // 0 at midnight, 1 at next midnight
-				const x = ((utcHour - startHour) / range) * 100;
-				const y = direction === 'down'
-					? progress * height       // top(0) → bottom(1)
-					: (1 - progress) * height; // bottom(1) → top(0)
-				points.push({ x, y });
-			}
+			const segLen = segEnd - segStart;
+			const xStart = ((segStart - startHour) / range) * 100;
+			const xEnd = ((segEnd - startHour) / range) * 100;
 
-			let strokeD = `M ${points[0].x} ${points[0].y}`;
-			for (let i = 1; i < points.length; i++) {
-				strokeD += ` L ${points[i].x} ${points[i].y}`;
-			}
-			const fillD = strokeD + ` L ${points[points.length - 1].x} ${height} L ${points[0].x} ${height} Z`;
+			// Two points: start and end of segment, straight diagonal line
+			const yStart = direction === 'down' ? 0 : height;
+			const yEnd = direction === 'down' ? height : 0;
+
+			const strokeD = `M ${xStart} ${yStart} L ${xEnd} ${yEnd}`;
+			const fillD = `M ${xStart} ${yStart} L ${xEnd} ${yEnd} L ${xEnd} ${height} L ${xStart} ${height} Z`;
 			arcs.push({ path: fillD, strokePath: strokeD, color, dayOffset });
 		}
 		return arcs;
