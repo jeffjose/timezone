@@ -1798,6 +1798,25 @@ function handleMarkerLineClick(e: MouseEvent, markerId: number) {
 													vector-effect="non-scaling-stroke"
 													clip-path="url(#work-clip-{rowIndex})"
 												/>
+												<!-- Extended hours (7a-9a, 5p-11p): dashed version -->
+												<clipPath id="ext-clip-{rowIndex}">
+													{#each visibleRenderHours as hour}
+														{@const actualH = getTzHourValue(entry.id, hour)}
+														{#if (actualH >= 7 && actualH < 9) || (actualH >= 17 && actualH < 23)}
+															<rect x={((hour - renderStart) / TOTAL_CELLS) * 100} y="0" width={100 / TOTAL_CELLS} height="40" />
+														{/if}
+													{/each}
+												</clipPath>
+												<path
+													d={(arcMode === 'progress' ? cachedProgressPaths.get(entry.id) : cachedDaylightPaths.get(entry.id)) ?? ''}
+													fill="url(#daylight-{rowIndex})"
+													stroke="rgba(255,255,255,0.15)"
+													stroke-width="0.4"
+													stroke-dasharray="1 0.8"
+													vector-effect="non-scaling-stroke"
+													clip-path="url(#ext-clip-{rowIndex})"
+													opacity="0.6"
+												/>
 											{:else}
 												<path
 													d={(arcMode === 'progress' ? cachedProgressPaths.get(entry.id) : cachedDaylightPaths.get(entry.id)) ?? ''}
@@ -1817,12 +1836,15 @@ function handleMarkerLineClick(e: MouseEvent, markerId: number) {
 											{@const isMidnight = actualHour === 0}
 											{@const dayColor = getDayColor(tzHour.dayOffset)}
 											{@const workHour = actualHour >= 9 && actualHour < 17}
+											{@const extHour = (actualHour >= 7 && actualHour < 9) || (actualHour >= 17 && actualHour < 23)}
 											{@const isOverlap = showWorkingHours && isOverlapWorkingHour(hour)}
-											{@const dimCell = showWorkingHours && !workHour}
+											{@const dimCell = showWorkingHours && !workHour && !extHour}
+											{@const dimExt = showWorkingHours && extHour}
 											<div
 												class="h-10 flex items-center justify-center relative shrink-0 z-10
 													{isMidnight ? 'border-l-2' : 'border-l border-l-border/20'}
-													{dimCell ? 'grayscale brightness-[0.4]' : ''}"
+													{dimCell ? 'grayscale brightness-[0.4]' : ''}
+													{dimExt ? 'brightness-[0.7]' : ''}"
 												style="width: {cellWidth}px; background: {isOverlap ? 'rgba(34, 197, 94, 0.12)' : dayColor.bg}; {isMidnight ? `border-left-color: ${dimCell ? 'rgba(128,128,128,0.3)' : dayColor.border}` : ''}"
 											>
 												{#if isMidnight}
