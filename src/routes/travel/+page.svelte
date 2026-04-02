@@ -692,7 +692,7 @@
 	</div>
 
 	<!-- Timeline visualization — horizontal: time on X (left→right), cities as rows on Y -->
-	{#if legs.length >= 2}
+	{#if legs.length >= 1}
 		{@const homeTz = legs[0].tzId}
 		{@const timelineStart = 0}
 		{@const timelineEnd = TIMELINE_HOURS}
@@ -718,11 +718,11 @@
 			</div>
 
 			<!-- Rows + overlays -->
-			<div class="flex flex-col flex-1 min-h-0 relative">
+			<div class="flex flex-col relative">
 				{#each legTimelines as row, rowIdx}
 					{@const timeDiff = rowIdx > 0 ? getTimeDiff(legTimelines[0].tzId, row.tzId, new Date(row.date)) : null}
 
-					<div class="flex items-stretch gap-0 flex-1 min-h-0">
+					<div class="flex items-stretch gap-0" style="height: {legTimelines.length <= 5 ? 40 : Math.max(24, 200 / legTimelines.length)}px"
 						<!-- Row label -->
 						<div class="group w-44 max-sm:hidden shrink-0 flex items-center justify-end pr-3 relative">
 							<!-- Reorder buttons -->
@@ -839,13 +839,6 @@
 					</div>
 				{/if}
 			</div>
-		</div>
-
-	{:else if legs.length === 1}
-		<div class="flex-1 flex flex-col items-center justify-center text-muted-foreground/50 gap-2 pb-20">
-			<Plane class="h-8 w-8 mb-2" />
-			<p class="text-sm">Add your next destination to see the timeline</p>
-			<p class="text-xs">Try typing a city and date, like "london apr 5"</p>
 		</div>
 
 	{:else}
