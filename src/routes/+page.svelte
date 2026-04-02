@@ -709,35 +709,39 @@
 		return d;
 	}
 
-	// Day progress path — sawtooth: 12a at top (100), descends to bottom (0) by 11:59pm, resets at next 12a
-	function getProgressPath(tz: string): string {
+	// Day progress path — sawtooth descending from top to bottom
+	// Normal: 12a(top) → 12a(bottom), Working hours: 9a(top) → 5p(bottom)
+	function getProgressPath(tz: string, workMode: boolean = false): string {
 		const height = 40;
 		const offsetMinutes = getTimezoneOffset(tz, offsetBase);
+		const rangeStart = workMode ? 9 : 0;   // hour where line starts at top
+		const rangeLen = workMode ? 8 : 24;     // hours in one cycle
 
-		// Only need two points per day (midnight start, pre-midnight end) plus boundaries
-		// Find the fractional local hour for each position
 		function localFracHour(utcHour: number): number {
 			const localMinutes = utcHour * 60 + offsetMinutes;
 			return (((localMinutes / 60) % 24) + 24) % 24;
 		}
 
-		// Build points with midnight resets
 		let d = '';
-		let prevLocalH = -1;
+		let prevProgress = -1;
 		const steps = TOTAL_CELLS * 2;
 
 		for (let i = 0; i <= steps; i++) {
 			const hourIndex = i / 2;
 			const utcHour = renderStart + hourIndex;
 			const localH = localFracHour(utcHour);
-			const val = 1 - localH / 24;
+			// How far through the range (0=top, 1=bottom)
+			const hoursIntoRange = ((localH - rangeStart + 24) % 24);
+			const progress = workMode
+				? (hoursIntoRange >= rangeLen ? 1 : hoursIntoRange / rangeLen)  // clamp outside range to bottom
+				: hoursIntoRange / rangeLen;
 			const x = (hourIndex / TOTAL_CELLS) * 100;
-			const y = height - val * height;
+			const y = progress * height;
 
 			if (i === 0) {
 				d = `M ${x} ${y}`;
-			} else if (localH < prevLocalH - 1) {
-				// Midnight crossing: drop to bottom, jump to top
+			} else if (progress < prevProgress - 0.1) {
+				// Range boundary crossing: drop to bottom, jump to top
 				d += ` L ${x} ${height}`;
 				d += ` L ${x} 0`;
 				d += ` L ${x} ${y}`;
@@ -756,7 +760,7 @@
 	);
 
 	let cachedProgressPaths = $derived(
-		new Map(selectedTimezones.map(e => [e.id, getProgressPath(e.id)]))
+		new Map(selectedTimezones.map(e => [e.id, getProgressPath(e.id, showWorkingHours)]))
 	);
 
 	function formatTimeWithSeconds(tz: string): string {
