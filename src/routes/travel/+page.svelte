@@ -368,36 +368,90 @@
 		return `${sign}${diff}h`;
 	}
 
-	// Daylight arc SVG path — cosine curve peaking at 1pm local time
-	function getDaylightPath(tzId: string, startHour: number, endHour: number): string {
+	// Day colors — blue for today, cycling for other days (matching main app)
+	const DAY_COLORS = [
+		{ r: 59, g: 130, b: 246 },   // blue-500 (today)
+		{ r: 168, g: 85, b: 247 },   // purple-500
+		{ r: 20, g: 184, b: 166 },   // teal-500
+		{ r: 245, g: 158, b: 11 },   // amber-500
+		{ r: 239, g: 68, b: 68 },    // red-500
+		{ r: 34, g: 197, b: 94 },    // green-500
+		{ r: 236, g: 72, b: 153 },   // pink-500
+	];
+
+	function getDayColor(dayOffset: number): { r: number; g: number; b: number } {
+		if (dayOffset === 0) return DAY_COLORS[0]; // today = blue
+		const idx = dayOffset > 0 ? dayOffset : DAY_COLORS.length + dayOffset;
+		return DAY_COLORS[((idx) % (DAY_COLORS.length - 1)) + 1];
+	}
+
+	// Per-day daylight arc segments — returns one path + color per day
+	function getDaylightArcs(tzId: string, startHour: number, endHour: number): { path: string; strokePath: string; color: { r: number; g: number; b: number }; dayOffset: number }[] {
 		const offsetMinutes = getTimezoneOffset(tzId, new Date());
 		const range = endHour - startHour;
 		const height = 40;
 		const maxArc = height * 0.65;
-		const sampleRate = 8; // samples per hour
-		const totalSamples = range * sampleRate;
-		const points: { x: number; y: number }[] = [];
+		const sampleRate = 8;
 
-		for (let i = 0; i <= totalSamples; i++) {
-			const utcHour = startHour + (i / sampleRate);
-			const continuousLocalHour = (utcHour * 60 + offsetMinutes) / 60;
-			// Full day cosine peaking at 1pm
-			const radians = ((continuousLocalHour - 13) / 24) * Math.PI * 2;
-			const val = (Math.cos(radians) + 1) / 2;
-			const x = ((utcHour - startHour) / range) * 100;
-			const y = height - val * maxArc;
-			points.push({ x, y });
+		// Figure out which days are covered
+		const todayStart = new Date();
+		todayStart.setHours(0, 0, 0, 0);
+
+		// Find midnight boundaries in this timezone within the range
+		const startLocalHour = (startHour * 60 + offsetMinutes) / 60;
+		const firstMidnight = Math.ceil(startLocalHour / 24) * 24;
+		const firstMidnightUtc = (firstMidnight * 60 - offsetMinutes) / 60;
+
+		// Collect day boundaries (as UTC hours from trip start)
+		const dayBoundaries: number[] = [startHour];
+		for (let utcH = firstMidnightUtc; utcH < endHour; utcH += 24) {
+			if (utcH > startHour) dayBoundaries.push(utcH);
+		}
+		dayBoundaries.push(endHour);
+
+		const arcs: { path: string; strokePath: string; color: { r: number; g: number; b: number }; dayOffset: number }[] = [];
+
+		for (let d = 0; d < dayBoundaries.length - 1; d++) {
+			const segStart = dayBoundaries[d];
+			const segEnd = dayBoundaries[d + 1];
+			const samples = Math.ceil((segEnd - segStart) * sampleRate);
+			if (samples < 2) continue;
+
+			// Determine day offset from today
+			const midUtcHour = (segStart + segEnd) / 2;
+			const absDate = new Date(tripSpan.startDate.getTime() + midUtcHour * 3600000);
+			const absDayStart = new Date(absDate);
+			absDayStart.setHours(0, 0, 0, 0);
+			const dayOffset = Math.round((absDayStart.getTime() - todayStart.getTime()) / 86400000);
+			const color = getDayColor(dayOffset);
+
+			const points: { x: number; y: number }[] = [];
+			for (let i = 0; i <= samples; i++) {
+				const utcHour = segStart + (i / samples) * (segEnd - segStart);
+				const continuousLocalHour = (utcHour * 60 + offsetMinutes) / 60;
+				const radians = ((continuousLocalHour - 13) / 24) * Math.PI * 2;
+				const val = (Math.cos(radians) + 1) / 2;
+				const x = ((utcHour - startHour) / range) * 100;
+				const y = height - val * maxArc;
+				points.push({ x, y });
+			}
+
+			// Stroke path (just the curve)
+			let strokeD = `M ${points[0].x} ${points[0].y}`;
+			for (let i = 1; i < points.length; i++) {
+				const prev = points[i - 1];
+				const curr = points[i];
+				const cpx = (prev.x + curr.x) / 2;
+				strokeD += ` C ${cpx} ${prev.y}, ${cpx} ${curr.y}, ${curr.x} ${curr.y}`;
+			}
+
+			// Fill path (closed to baseline)
+			const fillD = strokeD + ` L ${points[points.length - 1].x} ${height} L ${points[0].x} ${height} Z`;
+
+			arcs.push({ path: fillD, strokePath: strokeD, color, dayOffset });
 		}
 
-		let d = `M ${points[0].x} ${points[0].y}`;
-		for (let i = 1; i < points.length; i++) {
-			const prev = points[i - 1];
-			const curr = points[i];
-			const cpx = (prev.x + curr.x) / 2;
-			d += ` C ${cpx} ${prev.y}, ${cpx} ${curr.y}, ${curr.x} ${curr.y}`;
-		}
-		d += ` L 100 ${height} L 0 ${height} Z`;
-		return d;
+		return arcs;
 	}
 
 	// Time labels along the X axis — in the reference (top row) timezone
@@ -433,15 +487,15 @@
 	}
 
 	// Midnight positions for a timezone within the timeline (as percentages)
-	function getMidnightPositions(tzId: string, startHour: number, endHour: number): { pct: number; label: string }[] {
+	function getMidnightPositions(tzId: string, startHour: number, endHour: number): { pct: number; label: string; color: { r: number; g: number; b: number } }[] {
 		const offsetMinutes = getTimezoneOffset(tzId, new Date());
 		const range = endHour - startHour;
-		const results: { pct: number; label: string }[] = [];
+		const todayStart = new Date();
+		todayStart.setHours(0, 0, 0, 0);
+		const results: { pct: number; label: string; color: { r: number; g: number; b: number } }[] = [];
 
-		// Find the first local midnight after startHour
 		const startLocalHour = (startHour * 60 + offsetMinutes) / 60;
 		const firstMidnight = Math.ceil(startLocalHour / 24) * 24;
-		// Convert back to UTC hours from trip start
 		const firstUtcHour = (firstMidnight * 60 - offsetMinutes) / 60;
 
 		for (let utcH = firstUtcHour; utcH < endHour; utcH += 24) {
@@ -449,7 +503,12 @@
 			if (pct > 1 && pct < 99) {
 				const absDate = new Date(tripSpan.startDate.getTime() + utcH * 3600000);
 				const label = new Intl.DateTimeFormat('en-US', { timeZone: tzId, month: 'short', day: 'numeric', weekday: 'short' }).format(absDate);
-				results.push({ pct, label });
+				// Day offset: the day starting at this midnight
+				const dayStart = new Date(absDate);
+				dayStart.setHours(0, 0, 0, 0);
+				const dayOffset = Math.round((dayStart.getTime() - todayStart.getTime()) / 86400000);
+				const color = getDayColor(dayOffset);
+				results.push({ pct, label, color });
 			}
 		}
 		return results;
@@ -713,43 +772,47 @@
 						<!-- Horizontal strip -->
 						<div class="relative flex-1 overflow-hidden bg-card cells-area {rowIdx < legTimelines.length - 1 ? 'border-b border-border/30' : ''} {rowIdx === 0 ? 'rounded-t-lg' : ''} {rowIdx === legTimelines.length - 1 ? 'rounded-b-lg' : ''}"
 						>
-							<!-- Daylight arc (area chart with gradient fill) -->
+							<!-- Daylight arcs (one per day, colored) -->
 							<svg
 								class="absolute inset-0 w-full h-full pointer-events-none"
 								viewBox="0 0 100 40"
 								preserveAspectRatio="none"
 							>
 								<defs>
-									<linearGradient id="daylight-grad-{rowIdx}" x1="0" y1="0" x2="0" y2="1">
-										<stop offset="0%" stop-color="white" stop-opacity="0.15" />
-										<stop offset="100%" stop-color="white" stop-opacity="0.0" />
-									</linearGradient>
+									{#each getDaylightArcs(row.tzId, timelineStart, timelineEnd) as arc, arcIdx}
+										<linearGradient id="day-grad-{rowIdx}-{arcIdx}" x1="0" y1="0" x2="0" y2="1">
+											<stop offset="0%" stop-color="rgb({arc.color.r}, {arc.color.g}, {arc.color.b})" stop-opacity="0.15" />
+											<stop offset="100%" stop-color="rgb({arc.color.r}, {arc.color.g}, {arc.color.b})" stop-opacity="0.0" />
+										</linearGradient>
+									{/each}
 								</defs>
-								<!-- Filled area -->
-								<path
-									d={getDaylightPath(row.tzId, timelineStart, timelineEnd)}
-									fill="url(#daylight-grad-{rowIdx})"
-								/>
-								<!-- Stroke line on top -->
-								<path
-									d={getDaylightPath(row.tzId, timelineStart, timelineEnd)}
-									fill="none"
-									stroke="white"
-									stroke-opacity="0.2"
-									stroke-width="1"
-									vector-effect="non-scaling-stroke"
-								/>
+								{#each getDaylightArcs(row.tzId, timelineStart, timelineEnd) as arc, arcIdx}
+									<!-- Filled area -->
+									<path
+										d={arc.path}
+										fill="url(#day-grad-{rowIdx}-{arcIdx})"
+									/>
+									<!-- Stroke line -->
+									<path
+										d={arc.strokePath}
+										fill="none"
+										stroke="rgb({arc.color.r}, {arc.color.g}, {arc.color.b})"
+										stroke-opacity="0.4"
+										stroke-width="1"
+										vector-effect="non-scaling-stroke"
+									/>
+								{/each}
 							</svg>
 
-							<!-- Per-row midnight gridlines -->
+							<!-- Per-row midnight gridlines (colored) -->
 							{#each getMidnightPositions(row.tzId, timelineStart, timelineEnd) as midnight}
 								<div
-									class="absolute inset-y-0 w-px bg-border/40"
-									style="left: {midnight.pct}%"
+									class="absolute inset-y-0 w-px"
+									style="left: {midnight.pct}%; background: rgba({midnight.color.r}, {midnight.color.g}, {midnight.color.b}, 0.3)"
 								></div>
 								<div
-									class="absolute top-1 text-[8px] text-muted-foreground/40 font-medium"
-									style="left: {midnight.pct + 0.5}%"
+									class="absolute top-1 text-[8px] font-medium"
+									style="left: {midnight.pct + 0.5}%; color: rgba({midnight.color.r}, {midnight.color.g}, {midnight.color.b}, 0.5)"
 								>
 									{midnight.label}
 								</div>
