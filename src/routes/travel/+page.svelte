@@ -769,7 +769,14 @@
 			<div class="flex items-center gap-1 mt-5 flex-nowrap justify-center max-w-4xl w-full overflow-x-auto no-scrollbar">
 				{#each legs as leg, i}
 					{#if i > 0}
-						<ChevronRight class="h-3 w-3 text-muted-foreground/30 shrink-0" />
+						{@const prevDate = new Date(legs[i - 1].date + 'T12:00:00')}
+						{@const thisDate = new Date(leg.date + 'T12:00:00')}
+						{@const daysBetween = Math.round((thisDate.getTime() - prevDate.getTime()) / 86400000)}
+						<span class="shrink-0 flex items-center gap-0.5 text-[10px] text-muted-foreground/40 mx-0.5">
+							<span class="w-3 h-px bg-muted-foreground/20"></span>
+							{daysBetween}d
+							<span class="w-3 h-px bg-muted-foreground/20"></span>
+						</span>
 					{/if}
 					<div class="group inline-flex items-center rounded-md bg-secondary text-xs shrink-0 transition-all hover:bg-secondary/80">
 						<button
