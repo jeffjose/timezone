@@ -661,6 +661,15 @@
 		}).format(now);
 	}
 
+	function formatTime(tz: string): string {
+		return new Intl.DateTimeFormat('en-US', {
+			timeZone: tz,
+			hour: 'numeric',
+			minute: '2-digit',
+			hour12: true,
+		}).format(now);
+	}
+
 	function getCityName(tzId: string): string {
 		const parts = tzId.split('/');
 		return (parts[parts.length - 1] || tzId).replace(/_/g, ' ');
@@ -1385,20 +1394,23 @@ function handleMarkerLineClick(e: MouseEvent, markerId: number) {
 								<!-- Timezone label -->
 								<div class="sm:w-38 sm:shrink-0 relative bg-background sm:pr-2 sm:h-12 flex flex-col sm:justify-center
 									max-sm:flex-row max-sm:items-baseline max-sm:gap-2 max-sm:px-1 max-sm:py-1">
-									<div class="font-medium text-sm leading-tight flex items-center gap-1.5">
-										{entry.label}
+									<div class="flex items-center gap-1.5">
+										<span class="font-medium text-sm leading-tight truncate">{entry.label}</span>
 										{#if entry.id === localTz}
-											<span class="text-[9px] font-medium text-blue-400 bg-blue-400/10 px-1 py-px rounded">HOME</span>
+											<span class="text-[9px] font-medium text-blue-400 bg-blue-400/10 px-1 py-px rounded shrink-0">HOME</span>
 										{/if}
 									</div>
 									{#if hoverPercent !== null && !isDragging}
 										{@const hovered = getHoveredTime(entry.id, hoverPercent)}
-										<div class="text-[11px] text-foreground/80 leading-tight mt-0.5 max-sm:mt-0 font-medium">
-											{hovered.date} &middot; {hovered.time}
+										<div class="flex items-baseline gap-1 mt-0.5 max-sm:mt-0">
+											<span class="text-xs font-semibold text-foreground">{hovered.time}</span>
+											<span class="text-[10px] text-muted-foreground">{hovered.date}</span>
 										</div>
 									{:else}
-										<div class="text-[11px] text-muted-foreground leading-tight mt-0.5 max-sm:mt-0">
-											{formatTimeWithSeconds(entry.id)} &middot; {getTimezoneAbbr(entry.id)}
+										<div class="flex items-baseline gap-1.5 mt-0.5 max-sm:mt-0">
+											<span class="text-xs font-semibold text-foreground/90 tabular-nums">{formatTime(entry.id)}</span>
+											<span class="text-[10px] text-muted-foreground">{getTimezoneAbbr(entry.id)}</span>
+											<span class="text-[10px] text-muted-foreground/60">{formatOffset(getTimezoneOffset(entry.id, offsetBase))}</span>
 										</div>
 									{/if}
 
