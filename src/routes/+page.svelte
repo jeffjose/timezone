@@ -715,6 +715,7 @@
 		const rangeLen = workMode ? 8 : 24;
 		const peakHour = rangeStart + rangeLen / 2; // center of range
 		const offsetMinutes = getTimezoneOffset(tz, offsetBase);
+		const frac = cachedFractionalOffsets.get(tz) ?? 0;
 
 		// Use higher sampling for smoother curves
 		const sampleRate = 8; // points per cell
@@ -723,8 +724,8 @@
 		for (let i = 0; i <= totalSamples; i++) {
 			const hourIndex = i / sampleRate;
 			const utcHour = renderStart + hourIndex;
-			// Use raw continuous local hour (no modulo) so cosine stays smooth across midnight
-			const continuousLocalHour = (utcHour * 60 + offsetMinutes) / 60;
+			// Add fracOffset so path values align with shifted cell boundaries
+			const continuousLocalHour = ((utcHour + frac) * 60 + offsetMinutes) / 60;
 			let val: number;
 			if (workMode) {
 				// Three humps: 7a-9a, 9a-5p, 5p-11p
@@ -766,14 +767,16 @@
 	function getProgressPath(tz: string, workMode: boolean = false): string {
 		const height = 40;
 		const offsetMinutes = getTimezoneOffset(tz, offsetBase);
+		const frac = cachedFractionalOffsets.get(tz) ?? 0;
 
 		// Define ranges: each is [start, end) in local hours
 		const ranges = workMode
 			? [{ start: 7, end: 9 }, { start: 9, end: 17 }, { start: 17, end: 23 }]
 			: [{ start: 0, end: 24 }];
 
+		// Add fracOffset so path values align with shifted cell boundaries
 		function localFracHour(utcHour: number): number {
-			const localMinutes = utcHour * 60 + offsetMinutes;
+			const localMinutes = (utcHour + frac) * 60 + offsetMinutes;
 			return (((localMinutes / 60) % 24) + 24) % 24;
 		}
 
@@ -860,10 +863,9 @@
 	}
 
 	function getHoveredTime(tz: string, screenPercent: number): { time: string; date: string } {
-		// Convert screen percent to UTC hour, accounting for fractional strip offset
-		const fracOffset = cachedFractionalOffsets.get(tz) ?? 0;
+		// Convert screen percent to UTC hour — don't subtract fracOffset so hover aligns with cell labels
 		const screenX = (screenPercent / 100) * containerWidth;
-		const utcHour = (screenX - stripTranslateX - fracOffset * cellWidth) / cellWidth + renderStart;
+		const utcHour = (screenX - stripTranslateX) / cellWidth + renderStart;
 
 		const offsetMinutes = getTimezoneOffset(tz, offsetBase);
 		const localTotalMinutes = utcHour * 60 + offsetMinutes;
@@ -1796,11 +1798,10 @@ function handleMarkerLineClick(e: MouseEvent, markerId: number) {
 											</defs>
 											{#if showWorkingHours}
 												{@const tzOffsetMin = getTimezoneOffset(entry.id, offsetBase)}
-												{@const frac = cachedFractionalOffsets.get(entry.id) ?? 0}
 												{@const toX = (localHour: number) => {
-													// Convert local hour to SVG x coordinate (0-100)
-													const utcHour = (localHour * 60 - tzOffsetMin) / 60;
-													return ((utcHour - renderStart + frac) / TOTAL_CELLS) * 100;
+													// Convert local hour to SVG x coordinate aligned with cell boundaries
+													const utcCell = Math.floor((localHour * 60 - tzOffsetMin) / 60);
+													return ((utcCell - renderStart) / TOTAL_CELLS) * 100;
 												}}
 												{@const daySpan = Math.ceil((visibleRange.end - visibleRange.start) / 24) + 2}
 												{@const baseDay = Math.floor(((visibleRange.start * 60 + tzOffsetMin) / 60) / 24)}
