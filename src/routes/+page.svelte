@@ -709,7 +709,7 @@
 		return d;
 	}
 
-	// Day progress path — linear sawtooth rising from 12a to 12p, falling from 12p to 12a
+	// Day progress path — sawtooth: 12a at top, descending linearly to bottom by next 12a
 	function getProgressPath(tz: string): string {
 		const points: { x: number; y: number }[] = [];
 		const height = 40;
@@ -721,8 +721,8 @@
 			const actualHour = getTzHourValue(tz, Math.floor(hour));
 			const frac = hour - Math.floor(hour);
 			const continuousHour = actualHour + frac;
-			// Sawtooth: rises linearly 0→1 from 0h to 24h
-			const val = continuousHour / 24;
+			// Sawtooth: 12a (0h) = top, descends to bottom by 11:59pm
+			const val = 1 - continuousHour / 24;
 			const x = (hourIndex / TOTAL_CELLS) * 100;
 			const y = height - val * maxArc;
 			points.push({ x, y });
@@ -1317,25 +1317,30 @@ function handleMarkerLineClick(e: MouseEvent, markerId: number) {
 					</div>
 				</div>
 
-				<div class="relative group/arc ml-0.5">
+				<div class="flex items-center rounded-md border border-border overflow-hidden ml-1">
 					<button
 						type="button"
-						onclick={() => arcMode = arcMode === 'arc' ? 'progress' : 'arc'}
-						class="p-1.5 rounded-md transition-colors
-							{arcMode === 'progress'
-								? 'bg-cyan-500/15 text-cyan-500'
-								: 'text-muted-foreground hover:text-foreground hover:bg-accent'}"
+						onclick={() => arcMode = 'arc'}
+						class="px-2 py-1 text-[11px] font-medium transition-colors flex items-center gap-1
+							{arcMode === 'arc'
+								? 'bg-accent text-foreground'
+								: 'text-muted-foreground hover:text-foreground hover:bg-accent/50'}"
 					>
-						{#if arcMode === 'progress'}
-							<TrendingUp class="h-4 w-4" />
-						{:else}
-							<Sunset class="h-4 w-4" />
-						{/if}
+						<Sunset class="h-3 w-3" />
+						Arc
 					</button>
-					<div class="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-2.5 py-1.5 rounded-md bg-popover border border-border shadow-lg text-xs text-popover-foreground whitespace-nowrap opacity-0 group-hover/arc:opacity-100 pointer-events-none transition-opacity">
-						{arcMode === 'arc' ? 'Switch to day progress' : 'Switch to daylight arc'}
-						<div class="absolute top-full left-1/2 -translate-x-1/2 w-2 h-2 bg-popover border-r border-b border-border rotate-45 -mt-1"></div>
-					</div>
+					<div class="w-px h-4 bg-border"></div>
+					<button
+						type="button"
+						onclick={() => arcMode = 'progress'}
+						class="px-2 py-1 text-[11px] font-medium transition-colors flex items-center gap-1
+							{arcMode === 'progress'
+								? 'bg-accent text-foreground'
+								: 'text-muted-foreground hover:text-foreground hover:bg-accent/50'}"
+					>
+						<TrendingUp class="h-3 w-3" />
+						Progress
+					</button>
 				</div>
 			</div>
 		</div>
