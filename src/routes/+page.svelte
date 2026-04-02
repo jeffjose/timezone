@@ -712,35 +712,41 @@
 	// Day progress path — sawtooth: 12a at top (100), descends to bottom (0) by 11:59pm, resets at next 12a
 	function getProgressPath(tz: string): string {
 		const height = 40;
-		const maxArc = height;
-		let d = '';
-		let prevHour = -1;
+		const offsetMinutes = getTimezoneOffset(tz, offsetBase);
 
-		for (let i = 0; i <= TOTAL_CELLS * 2; i++) {
+		// Only need two points per day (midnight start, pre-midnight end) plus boundaries
+		// Find the fractional local hour for each position
+		function localFracHour(utcHour: number): number {
+			const localMinutes = utcHour * 60 + offsetMinutes;
+			return (((localMinutes / 60) % 24) + 24) % 24;
+		}
+
+		// Build points with midnight resets
+		let d = '';
+		let prevLocalH = -1;
+		const steps = TOTAL_CELLS * 2;
+
+		for (let i = 0; i <= steps; i++) {
 			const hourIndex = i / 2;
-			const hour = renderStart + hourIndex;
-			const actualHour = getTzHourValue(tz, Math.floor(hour));
-			const frac = hour - Math.floor(hour);
-			const continuousHour = actualHour + frac;
-			const val = 1 - continuousHour / 24;
+			const utcHour = renderStart + hourIndex;
+			const localH = localFracHour(utcHour);
+			const val = 1 - localH / 24;
 			const x = (hourIndex / TOTAL_CELLS) * 100;
-			const y = height - val * maxArc;
+			const y = height - val * height;
 
 			if (i === 0) {
 				d = `M ${x} ${y}`;
-			} else if (actualHour < prevHour) {
-				// Midnight boundary: drop to baseline, move across, rise to top
-				d += ` L ${x} ${height}`;  // drop to bottom
-				d += ` L ${x} ${height - maxArc}`;  // rise to top
+			} else if (localH < prevLocalH - 1) {
+				// Midnight crossing: drop to bottom, jump to top
+				d += ` L ${x} ${height}`;
+				d += ` L ${x} 0`;
 				d += ` L ${x} ${y}`;
 			} else {
 				d += ` L ${x} ${y}`;
 			}
-			prevHour = actualHour;
+			prevLocalH = localH;
 		}
-		// Close: line down to baseline, back to start
-		const lastX = 100;
-		d += ` L ${lastX} ${height} L 0 ${height} Z`;
+		d += ` L 100 ${height} L 0 ${height} Z`;
 		return d;
 	}
 
