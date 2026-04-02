@@ -1817,12 +1817,13 @@ function handleMarkerLineClick(e: MouseEvent, markerId: number) {
 												{:else}
 													<span class="text-xs font-medium
 														{isNow
-															? 'text-blue-400'
+															? ''
 															: actualHour >= 9 && actualHour < 17
 																? 'text-foreground'
 																: actualHour >= 22 || actualHour < 6
 																	? 'text-muted-foreground/60'
-																	: 'text-foreground/70'}">
+																	: 'text-foreground/70'}"
+														style="{isNow ? `color: ${dayColor.text}` : ''}">
 														{tzHour.displayHour}{tzHour.period[0].toLowerCase()}
 													</span>
 												{/if}
