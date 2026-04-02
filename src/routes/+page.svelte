@@ -279,7 +279,7 @@
 			if (strip) {
 				const rect = strip.getBoundingClientRect();
 				let pct = Math.max(0, Math.min(100, ((e.clientX - rect.left) / rect.width) * 100));
-				if (e.shiftKey) {
+				if (!e.shiftKey) {
 					const snapped = snapToQuarter(screenPercentToUtcHour(pct));
 					pct = markerScreenPercent(snapped);
 				}
@@ -579,7 +579,8 @@
 		// Place marker at hover position
 		if (e.key === 'm' && hoverPercent !== null) {
 			e.preventDefault();
-			const utcHour = screenPercentToUtcHour(hoverPercent);
+			let utcHour = screenPercentToUtcHour(hoverPercent);
+			if (!e.shiftKey) utcHour = snapToQuarter(utcHour);
 			addMarker(utcHour);
 			return;
 		}
@@ -933,7 +934,7 @@ function handleMarkerLineClick(e: MouseEvent, markerId: number) {
 		const dx = e.clientX - markerDragStartX;
 		const dHours = dx / cellWidth;
 		let newUtcHour = markerDragStartUtcHour + dHours;
-		if (e.shiftKey) newUtcHour = snapToQuarter(newUtcHour);
+		if (!e.shiftKey) newUtcHour = snapToQuarter(newUtcHour);
 
 		if (draggingEdge) {
 			// Edge drag: only move one end
@@ -1018,16 +1019,16 @@ function handleMarkerLineClick(e: MouseEvent, markerId: number) {
 		if ((e.target as HTMLElement).closest('.marker-label')) return;
 		const pct = getCreateStripPercent(e);
 		let utcHour = screenPercentToUtcHour(pct);
-		if (e.shiftKey) utcHour = snapToQuarter(utcHour);
+		if (!e.shiftKey) utcHour = snapToQuarter(utcHour);
 		isCreatingInterval = true;
 		createIntervalStart = utcHour;
-		createIntervalCurrentPct = e.shiftKey ? markerScreenPercent(utcHour) : pct;
+		createIntervalCurrentPct = !e.shiftKey ? markerScreenPercent(utcHour) : pct;
 		e.preventDefault();
 	}
 
 	function handleCreateStripMouseMove(e: MouseEvent) {
 		let pct = getCreateStripPercent(e);
-		if (e.shiftKey && isCreatingInterval) {
+		if (!e.shiftKey && isCreatingInterval) {
 			const snapped = snapToQuarter(screenPercentToUtcHour(pct));
 			pct = markerScreenPercent(snapped);
 		}
@@ -1042,13 +1043,13 @@ function handleMarkerLineClick(e: MouseEvent, markerId: number) {
 		if (!isCreatingInterval || createIntervalStart === null) return;
 		// Use the current preview pct (works even if mouse is outside strip)
 		let endUtcHour = screenPercentToUtcHour(createIntervalCurrentPct);
-		if (e.shiftKey) endUtcHour = snapToQuarter(endUtcHour);
+		if (!e.shiftKey) endUtcHour = snapToQuarter(endUtcHour);
 		const startUtcHour = createIntervalStart;
 
 		// If barely moved, create a point marker; otherwise an interval
 		const hourDiff = Math.abs(endUtcHour - startUtcHour);
 		if (hourDiff < 0.25) {
-			addMarker(e.shiftKey ? snapToQuarter(startUtcHour) : startUtcHour);
+			addMarker(!e.shiftKey ? snapToQuarter(startUtcHour) : startUtcHour);
 		} else {
 			const color = MARKER_COLORS[markers.length % MARKER_COLORS.length];
 			const id = nextMarkerId++;
