@@ -12,7 +12,7 @@
 		type TimezoneInfo,
 		type SearchResult,
 	} from '$lib/timezones';
-	import { X, ChevronUp, ChevronDown, Search, Globe, ChevronLeft, ChevronRight, CalendarDays, Plus, EllipsisVertical, Trash2, Copy, MoveHorizontal } from '@lucide/svelte';
+	import { X, ChevronUp, ChevronDown, Search, Globe, ChevronLeft, ChevronRight, CalendarDays, Plus, EllipsisVertical, Trash2, Copy, MoveHorizontal, LocateFixed } from '@lucide/svelte';
 	import { DropdownMenu } from 'bits-ui';
 
 	interface SelectedTz {
@@ -78,6 +78,7 @@
 	let remoteSearchTimeout: ReturnType<typeof setTimeout> | null = null;
 	let isSearchingRemote = $state(false);
 	let searchFocused = $state(false);
+	let locatingCity = $state(false);
 	let highlightedIndex = $state(-1);
 	let inputEl: HTMLInputElement | undefined = $state();
 	let now = $state(nowInit);
@@ -202,6 +203,7 @@
 	})());
 
 	const localTz = localTzInit;
+	let localCityName = $state('');
 
 	function isSameDay(a: Date, b: Date): boolean {
 		return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
@@ -387,6 +389,24 @@
 		};
 		measure();
 
+		// Try to get actual city name via geolocation
+		if (navigator.geolocation) {
+			navigator.geolocation.getCurrentPosition(async (pos) => {
+				try {
+					const res = await fetch(`https://nominatim.openstreetmap.org/reverse?lat=${pos.coords.latitude}&lon=${pos.coords.longitude}&format=json&zoom=10`);
+					const data = await res.json();
+					const city = data.address?.city || data.address?.town || data.address?.village;
+					if (city) {
+						localCityName = city;
+						// Update label for local timezone entry
+						selectedTimezones = selectedTimezones.map(tz =>
+							tz.id === localTz ? { ...tz, label: city } : tz
+						);
+					}
+				} catch {}
+			}, () => {}, { timeout: 5000 });
+		}
+
 		ready = true;
 		ro = new ResizeObserver(measure);
 		const cellsEl = document.querySelector('.cells-area');
@@ -432,6 +452,33 @@
 		searchResults = [];
 		highlightedIndex = -1;
 		inputEl?.focus();
+	}
+
+	async function handlePinpoint() {
+		if (!navigator.geolocation) return;
+		locatingCity = true;
+		navigator.geolocation.getCurrentPosition(async (pos) => {
+			try {
+				const res = await fetch(`https://nominatim.openstreetmap.org/reverse?lat=${pos.coords.latitude}&lon=${pos.coords.longitude}&format=json&zoom=10`);
+				const data = await res.json();
+				const city = data.address?.city || data.address?.town || data.address?.village;
+				if (city) {
+					localCityName = city;
+					const homeIndex = selectedTimezones.findIndex(tz => tz.id === localTz);
+					if (homeIndex >= 0) {
+						selectedTimezones = selectedTimezones.map(tz =>
+							tz.id === localTz ? { ...tz, label: city } : tz
+						);
+					} else {
+						selectedTimezones = [{ id: localTz, label: city }, ...selectedTimezones];
+					}
+					saveToLocalStorage();
+					updateUrl();
+				}
+			} catch {} finally {
+				locatingCity = false;
+			}
+		}, () => { locatingCity = false; }, { timeout: 5000 });
 	}
 
 	function removeTimezoneAt(index: number) {
@@ -666,6 +713,7 @@
 			timeZone: tz,
 			hour: 'numeric',
 			minute: '2-digit',
+			second: '2-digit',
 			hour12: true,
 		}).format(now);
 	}
@@ -1051,6 +1099,15 @@ function handleMarkerLineClick(e: MouseEvent, markerId: number) {
 						placeholder={selectedTimezones.length === 0 ? 'Search timezones...' : 'Add timezone...'}
 						class="flex-1 min-w-[80px] bg-transparent text-sm text-foreground placeholder:text-muted-foreground outline-none select-text"
 					/>
+					<button
+						type="button"
+						onclick={handlePinpoint}
+						disabled={locatingCity}
+						title="Detect my location"
+						class="shrink-0 p-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-accent transition-colors disabled:opacity-50"
+					>
+						<LocateFixed class="h-4 w-4 {locatingCity ? 'animate-pulse' : ''}" />
+					</button>
 				</div>
 
 				{#if showDropdown}
