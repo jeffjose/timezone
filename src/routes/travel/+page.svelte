@@ -435,18 +435,33 @@
 		return d;
 	}
 
-	// Time labels along the X axis
-	function getTimeLabels(startHour: number, endHour: number): { hour: number; label: string; dateLabel: string | null }[] {
+	// Time labels along the X axis — in the reference (top row) timezone
+	function getTimeLabels(startHour: number, endHour: number, refTzId: string): { hour: number; label: string; dateLabel: string | null }[] {
 		const labels: { hour: number; label: string; dateLabel: string | null }[] = [];
+		const offsetMinutes = getTimezoneOffset(refTzId, new Date());
 		const step = 6;
-		for (let h = Math.ceil(startHour / step) * step; h <= endHour; h += step) {
-			const date = new Date(tripSpan.startDate.getTime() + h * 3600000);
-			const utcHour = date.getUTCHours();
-			const dateStr = new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', weekday: 'short' }).format(date);
+
+		// Find the first gridline aligned to a 6-hour boundary in local time
+		const firstLocalHour = (startHour * 60 + offsetMinutes) / 60;
+		const firstAligned = Math.ceil(firstLocalHour / step) * step;
+		const firstUtcHour = (firstAligned * 60 - offsetMinutes) / 60;
+
+		for (let utcH = firstUtcHour; utcH <= endHour; utcH += step) {
+			const absDate = new Date(tripSpan.startDate.getTime() + utcH * 3600000);
+			const localTime = new Intl.DateTimeFormat('en-US', {
+				timeZone: refTzId,
+				hour: 'numeric',
+				hour12: true,
+			}).format(absDate);
+			const localHourVal = Math.round(((utcH * 60 + offsetMinutes) / 60 % 24 + 24) % 24);
+			const isLocalMidnight = localHourVal === 0 || localHourVal === 24;
+			const dateStr = isLocalMidnight
+				? new Intl.DateTimeFormat('en-US', { timeZone: refTzId, month: 'short', day: 'numeric', weekday: 'short' }).format(absDate)
+				: null;
 			labels.push({
-				hour: h,
-				label: `${utcHour}:00`,
-				dateLabel: utcHour === 0 ? dateStr : null,
+				hour: utcH,
+				label: localTime,
+				dateLabel: dateStr,
 			});
 		}
 		return labels;
@@ -604,7 +619,7 @@
 		{@const timelineStart = 0}
 		{@const timelineEnd = TIMELINE_HOURS}
 		{@const timelineRange = TIMELINE_HOURS}
-		{@const timeLabels = getTimeLabels(timelineStart, timelineEnd)}
+		{@const timeLabels = getTimeLabels(timelineStart, timelineEnd, homeTz)}
 		{@const nowPct = ((nowHourFromStart - timelineStart) / timelineRange) * 100}
 		{@const nowInRange = nowPct >= 0 && nowPct <= 100}
 		{@const homeTz = legs[0].tzId}
