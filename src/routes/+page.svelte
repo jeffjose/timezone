@@ -1840,14 +1840,6 @@ function handleMarkerLineClick(e: MouseEvent, markerId: number) {
 													vector-effect="non-scaling-stroke"
 													clip-path="url(#ext-clip-{rowIndex})"
 												/>
-												<!-- Subtle fill for extended hours -->
-												<path
-													d={(arcMode === 'progress' ? cachedProgressPaths.get(entry.id) : cachedDaylightPaths.get(entry.id)) ?? ''}
-													fill="url(#daylight-{rowIndex})"
-													stroke="none"
-													clip-path="url(#ext-clip-{rowIndex})"
-													opacity="0.4"
-												/>
 											{:else}
 												<path
 													d={(arcMode === 'progress' ? cachedProgressPaths.get(entry.id) : cachedDaylightPaths.get(entry.id)) ?? ''}
