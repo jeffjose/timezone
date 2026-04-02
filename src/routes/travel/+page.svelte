@@ -381,8 +381,10 @@
 
 	function getDayColor(dayOffset: number): { r: number; g: number; b: number } {
 		if (dayOffset === 0) return DAY_COLORS[0]; // today = blue
-		const idx = dayOffset > 0 ? dayOffset : DAY_COLORS.length + dayOffset;
-		return DAY_COLORS[((idx) % (DAY_COLORS.length - 1)) + 1];
+		// Match main app: dayOffset 1 → purple (idx 0), dayOffset -1 → pink (last)
+		const others = DAY_COLORS.length - 1; // 6 non-blue colors
+		const idx = dayOffset > 0 ? dayOffset - 1 : others + dayOffset;
+		return DAY_COLORS[((idx % others) + others) % others + 1];
 	}
 
 	// Per-day daylight arc segments — returns one path + color per day
