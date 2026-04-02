@@ -555,9 +555,9 @@
 		{@const homeTz = sortedLegs[0].tzId}
 		{@const allRows = [...legTimelines, { id: -1, city: 'Body Clock', tzId: homeTz, date: sortedLegs[0].date, offsetMin: getTimezoneOffset(homeTz, new Date(sortedLegs[0].date)), abbr: getTimezoneAbbr(homeTz, new Date(sortedLegs[0].date)), offsetStr: formatOffset(getTimezoneOffset(homeTz, new Date(sortedLegs[0].date))), arrivalHour: legTimelines[0].arrivalHour, departureHour: legTimelines[legTimelines.length - 1].departureHour, isBodyClock: true }]}
 
-		<div class="flex-1 flex flex-col px-4 pb-2 max-w-4xl mx-auto w-full min-h-0">
+		<div class="flex-1 flex flex-col px-4 max-sm:px-2 pb-2 max-w-6xl mx-auto w-full min-h-0">
 			<!-- X-axis: time labels (top) -->
-			<div class="relative h-6 ml-[140px] max-sm:ml-[90px] shrink-0 mb-1">
+			<div class="relative h-6 ml-44 max-sm:ml-0 shrink-0 mb-1">
 				{#each timeLabels as label}
 					{@const pct = ((label.hour - timelineStart) / timelineRange) * 100}
 					{#if pct >= 0 && pct <= 100}
@@ -591,7 +591,7 @@
 
 					<div class="flex items-stretch gap-0 flex-1 min-h-0">
 						<!-- Row label -->
-						<div class="w-[140px] max-sm:w-[90px] shrink-0 flex flex-col justify-center pr-3 text-right">
+						<div class="w-44 max-sm:hidden shrink-0 flex flex-col justify-center pr-3 text-right">
 							{#if isBodyClock}
 								<div class="text-xs font-medium text-amber-500/60 flex items-center justify-end gap-1">
 									<Clock class="h-3 w-3" />
