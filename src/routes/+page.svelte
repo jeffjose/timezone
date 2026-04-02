@@ -709,11 +709,12 @@
 		return d;
 	}
 
-	// Day progress path — sawtooth: 12a at top, descending linearly to bottom by next 12a
+	// Day progress path — sawtooth: 12a at top (100), descends to bottom (0) by 11:59pm, resets at next 12a
 	function getProgressPath(tz: string): string {
-		const points: { x: number; y: number }[] = [];
 		const height = 40;
 		const maxArc = height * 0.65;
+		let d = '';
+		let prevHour = -1;
 
 		for (let i = 0; i <= TOTAL_CELLS * 2; i++) {
 			const hourIndex = i / 2;
@@ -721,18 +722,27 @@
 			const actualHour = getTzHourValue(tz, Math.floor(hour));
 			const frac = hour - Math.floor(hour);
 			const continuousHour = actualHour + frac;
-			// Sawtooth: 12a (0h) = top, descends to bottom by 11:59pm
 			const val = 1 - continuousHour / 24;
 			const x = (hourIndex / TOTAL_CELLS) * 100;
 			const y = height - val * maxArc;
-			points.push({ x, y });
-		}
 
-		let d = `M ${points[0].x} ${points[0].y}`;
-		for (let i = 1; i < points.length; i++) {
-			d += ` L ${points[i].x} ${points[i].y}`;
+			if (i === 0) {
+				d = `M ${x} ${y}`;
+			} else if (actualHour < prevHour) {
+				// Midnight boundary: drop to bottom, then jump to top
+				const prevX = ((hourIndex - 0.5) / TOTAL_CELLS) * 100;
+				d += ` L ${prevX} ${height - 0}`;  // bottom at previous x
+				d += ` L ${prevX} ${height} L ${x} ${height}`;  // fill to baseline
+				d += ` M ${x} ${height - maxArc}`;  // jump to top
+				d += ` L ${x} ${y}`;
+			} else {
+				d += ` L ${x} ${y}`;
+			}
+			prevHour = actualHour;
 		}
-		d += ` L 100 ${height} L 0 ${height} Z`;
+		// Close: line down to baseline, back to start
+		const lastX = 100;
+		d += ` L ${lastX} ${height} L 0 ${height} Z`;
 		return d;
 	}
 
