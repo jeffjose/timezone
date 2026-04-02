@@ -649,7 +649,7 @@
 			</div>
 
 			<!-- Rows + overlays -->
-			<div class="flex flex-col flex-1 min-h-0 gap-1 relative">
+			<div class="flex flex-col flex-1 min-h-0 relative">
 				{#each legTimelines as row, rowIdx}
 					{@const timeDiff = rowIdx > 0 ? getTimeDiff(legTimelines[0].tzId, row.tzId, new Date(row.date)) : null}
 
@@ -679,17 +679,19 @@
 							</div>
 							<div class="text-right">
 								<div class="flex items-center gap-1.5 justify-end">
-									<span class="font-medium text-sm text-secondary-foreground truncate">{row.city}</span>
+									<span class="font-medium text-sm leading-tight truncate">{row.city}</span>
 								</div>
 								{#if hoverPct !== null}
 									{@const hoveredTime = getHoveredTimeForTz(row.tzId, hoverPct)}
-									<div class="flex items-baseline gap-1 justify-end">
+									<div class="flex items-baseline gap-1 justify-end mt-0.5">
 										<span class="text-xs font-semibold text-foreground">{hoveredTime.time}</span>
 										<span class="text-[10px] text-muted-foreground">{hoveredTime.date}</span>
 									</div>
 								{:else}
-									<div class="text-[10px] text-muted-foreground/50">
-										{row.abbr} · {row.offsetStr}
+									<div class="flex items-baseline gap-1.5 justify-end mt-0.5">
+										<span class="text-xs font-semibold text-foreground/90 tabular-nums">{formatLocalTime(row.tzId, now)}</span>
+										<span class="text-[10px] text-muted-foreground">{row.abbr}</span>
+										<span class="text-[10px] text-muted-foreground/60">{row.offsetStr}</span>
 									</div>
 									{#if timeDiff}
 										<div class="text-[9px] text-muted-foreground/40">{timeDiff}</div>
@@ -699,7 +701,8 @@
 						</div>
 
 						<!-- Horizontal strip -->
-						<div class="relative flex-1 rounded-lg overflow-hidden border border-border/50 bg-card cells-area">
+						<div class="relative flex-1 overflow-hidden bg-card cells-area {rowIdx < legTimelines.length - 1 ? 'border-b border-border/30' : ''} {rowIdx === 0 ? 'rounded-t-lg' : ''} {rowIdx === legTimelines.length - 1 ? 'rounded-b-lg' : ''}"
+						>
 							<!-- Daylight arc (area chart with gradient fill) -->
 							<svg
 								class="absolute inset-0 w-full h-full pointer-events-none"
