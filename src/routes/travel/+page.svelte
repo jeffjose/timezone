@@ -432,6 +432,29 @@
 		return labels;
 	}
 
+	// Midnight positions for a timezone within the timeline (as percentages)
+	function getMidnightPositions(tzId: string, startHour: number, endHour: number): { pct: number; label: string }[] {
+		const offsetMinutes = getTimezoneOffset(tzId, new Date());
+		const range = endHour - startHour;
+		const results: { pct: number; label: string }[] = [];
+
+		// Find the first local midnight after startHour
+		const startLocalHour = (startHour * 60 + offsetMinutes) / 60;
+		const firstMidnight = Math.ceil(startLocalHour / 24) * 24;
+		// Convert back to UTC hours from trip start
+		const firstUtcHour = (firstMidnight * 60 - offsetMinutes) / 60;
+
+		for (let utcH = firstUtcHour; utcH < endHour; utcH += 24) {
+			const pct = ((utcH - startHour) / range) * 100;
+			if (pct > 1 && pct < 99) {
+				const absDate = new Date(tripSpan.startDate.getTime() + utcH * 3600000);
+				const label = new Intl.DateTimeFormat('en-US', { timeZone: tzId, month: 'short', day: 'numeric', weekday: 'short' }).format(absDate);
+				results.push({ pct, label });
+			}
+		}
+		return results;
+	}
+
 	// --- Hover ---
 	function handleTimelineMouseMove(e: MouseEvent) {
 		const cellsEl = (e.currentTarget as HTMLElement).querySelector('.cells-area');
@@ -625,27 +648,14 @@
 			onmousemove={handleTimelineMouseMove}
 			onmouseleave={handleTimelineMouseLeave}
 		>
-			<!-- Blue dot + X-axis labels (top) -->
-			<div class="relative h-6 ml-44 max-sm:ml-0 shrink-0 mb-1">
-				<!-- Blue dot at now position -->
+			<!-- Blue dot (now indicator, top) -->
+			<div class="relative h-3 ml-44 max-sm:ml-0 shrink-0">
 				{#if nowInRange}
 					<div
 						class="absolute bottom-0 w-[10px] h-[10px] rounded-full bg-blue-500 z-20 -translate-x-1/2 translate-y-1/2 pointer-events-none"
 						style="left: {nowPct}%"
 					></div>
 				{/if}
-				<!-- Date labels only (at midnight boundaries) -->
-				{#each timeLabels as label}
-					{@const pct = ((label.hour - timelineStart) / timelineRange) * 100}
-					{#if pct >= 0 && pct <= 100 && label.dateLabel}
-						<div
-							class="absolute bottom-0 -translate-x-1/2"
-							style="left: {pct}%"
-						>
-							<div class="text-[9px] text-muted-foreground/70 font-medium whitespace-nowrap">{label.dateLabel}</div>
-						</div>
-					{/if}
-				{/each}
 			</div>
 
 			<!-- Rows + overlays -->
@@ -731,15 +741,18 @@
 								/>
 							</svg>
 
-							<!-- Midnight gridlines only -->
-							{#each timeLabels as label}
-								{@const pct = ((label.hour - timelineStart) / timelineRange) * 100}
-								{#if pct > 1 && pct < 99 && label.dateLabel}
-									<div
-										class="absolute inset-y-0 w-px bg-border/30"
-										style="left: {pct}%"
-									></div>
-								{/if}
+							<!-- Per-row midnight gridlines -->
+							{#each getMidnightPositions(row.tzId, timelineStart, timelineEnd) as midnight}
+								<div
+									class="absolute inset-y-0 w-px bg-border/40"
+									style="left: {midnight.pct}%"
+								></div>
+								<div
+									class="absolute top-1 text-[8px] text-muted-foreground/40 font-medium"
+									style="left: {midnight.pct + 0.5}%"
+								>
+									{midnight.label}
+								</div>
 							{/each}
 
 							<!-- Now line (blue, vertical) -->
