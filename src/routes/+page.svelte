@@ -1795,13 +1795,21 @@ function handleMarkerLineClick(e: MouseEvent, markerId: number) {
 												</linearGradient>
 											</defs>
 											{#if showWorkingHours}
-												<!-- Dimmed version for off hours only (excludes core + extended) -->
+												{@const tzOffsetMin = getTimezoneOffset(entry.id, offsetBase)}
+												{@const frac = cachedFractionalOffsets.get(entry.id) ?? 0}
+												{@const toX = (localHour: number) => {
+													// Convert local hour to SVG x coordinate (0-100)
+													const utcHour = (localHour * 60 - tzOffsetMin) / 60;
+													return ((utcHour - renderStart + frac) / TOTAL_CELLS) * 100;
+												}}
+												{@const daySpan = Math.ceil((visibleRange.end - visibleRange.start) / 24) + 2}
+												{@const baseDay = Math.floor(((visibleRange.start * 60 + tzOffsetMin) / 60) / 24)}
+												<!-- Generate clip rects using exact local hour boundaries -->
 												<clipPath id="off-clip-{rowIndex}">
-													{#each visibleRenderHours as hour}
-														{@const actualH = getTzHourValue(entry.id, hour)}
-														{#if actualH < 7 || actualH >= 23}
-															<rect x={((hour - renderStart) / TOTAL_CELLS) * 100} y="0" width={100 / TOTAL_CELLS} height="40" />
-														{/if}
+													{#each Array.from({length: daySpan}, (_, i) => baseDay + i) as day}
+														{@const x1 = toX(day * 24 + 23)}
+														{@const x2 = toX(day * 24 + 24 + 7)}
+														<rect x={Math.min(x1, x2)} y="0" width={Math.abs(x2 - x1)} height="40" />
 													{/each}
 												</clipPath>
 												<path
@@ -1813,13 +1821,12 @@ function handleMarkerLineClick(e: MouseEvent, markerId: number) {
 													clip-path="url(#off-clip-{rowIndex})"
 													opacity="0.3"
 												/>
-												<!-- Bright version clipped to working hours -->
+												<!-- Bright version clipped to working hours (9a-5p) -->
 												<clipPath id="work-clip-{rowIndex}">
-													{#each visibleRenderHours as hour}
-														{@const actualH = getTzHourValue(entry.id, hour)}
-														{#if actualH >= 9 && actualH < 17}
-															<rect x={((hour - renderStart) / TOTAL_CELLS) * 100} y="0" width={100 / TOTAL_CELLS} height="40" />
-														{/if}
+													{#each Array.from({length: daySpan}, (_, i) => baseDay + i) as day}
+														{@const x1 = toX(day * 24 + 9)}
+														{@const x2 = toX(day * 24 + 17)}
+														<rect x={Math.min(x1, x2)} y="0" width={Math.abs(x2 - x1)} height="40" />
 													{/each}
 												</clipPath>
 												<path
@@ -1832,11 +1839,13 @@ function handleMarkerLineClick(e: MouseEvent, markerId: number) {
 												/>
 												<!-- Extended hours (7a-9a, 5p-11p) -->
 												<clipPath id="ext-clip-{rowIndex}">
-													{#each visibleRenderHours as hour}
-														{@const actualH = getTzHourValue(entry.id, hour)}
-														{#if (actualH >= 7 && actualH < 9) || (actualH >= 17 && actualH < 23)}
-															<rect x={((hour - renderStart) / TOTAL_CELLS) * 100} y="0" width={100 / TOTAL_CELLS} height="40" />
-														{/if}
+													{#each Array.from({length: daySpan}, (_, i) => baseDay + i) as day}
+														{@const x1a = toX(day * 24 + 7)}
+														{@const x2a = toX(day * 24 + 9)}
+														{@const x1b = toX(day * 24 + 17)}
+														{@const x2b = toX(day * 24 + 23)}
+														<rect x={Math.min(x1a, x2a)} y="0" width={Math.abs(x2a - x1a)} height="40" />
+														<rect x={Math.min(x1b, x2b)} y="0" width={Math.abs(x2b - x1b)} height="40" />
 													{/each}
 												</clipPath>
 												<!-- Dashed stroke for extended hours -->
