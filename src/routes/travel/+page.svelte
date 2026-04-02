@@ -12,7 +12,10 @@
 		type TimezoneInfo,
 		type SearchResult,
 	} from '$lib/timezones';
-	import { X, Search, Globe, Plane, ChevronRight, ChevronUp, ChevronDown, MapPin, Calendar, Plus, LocateFixed, Sunset, TrendingUp, TrendingDown } from '@lucide/svelte';
+	import { X, Search, Globe, Plane, ChevronRight, ChevronUp, ChevronDown, MapPin, Plus, LocateFixed, Sunset, TrendingUp, TrendingDown } from '@lucide/svelte';
+	import * as Popover from '$lib/components/ui/popover';
+	import { Calendar } from '$lib/components/ui/calendar';
+	import { CalendarDate } from '@internationalized/date';
 
 	// --- Types ---
 	interface Leg {
@@ -46,6 +49,21 @@
 	let ready = $state(false);
 	let hoverPct: number | null = $state(null);
 	let vizMode: 'arc' | 'progress-down' | 'progress-up' = $state('arc');
+	let openPopoverId: number | null = $state(null);
+
+	function isoToCalendarDate(iso: string): CalendarDate {
+		const [y, m, d] = iso.split('-').map(Number);
+		return new CalendarDate(y, m, d);
+	}
+
+	function calendarDateToIso(cd: CalendarDate): string {
+		return `${cd.year}-${String(cd.month).padStart(2, '0')}-${String(cd.day).padStart(2, '0')}`;
+	}
+
+	function formatChipDate(iso: string): string {
+		const d = new Date(iso + 'T12:00:00');
+		return new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric' }).format(d);
+	}
 
 	// Pan state — centerHour is hours from tripSpan.startDate at center of viewport
 	const initNow = new Date();
@@ -748,35 +766,43 @@
 
 		<!-- Itinerary chips -->
 		{#if legs.length > 0}
-			<div class="flex items-center gap-1.5 mt-5 flex-wrap justify-center max-w-4xl w-full">
+			<div class="flex items-center gap-1 mt-5 flex-nowrap justify-center max-w-4xl w-full overflow-x-auto no-scrollbar">
 				{#each legs as leg, i}
 					{#if i > 0}
-						<ChevronRight class="h-3.5 w-3.5 text-muted-foreground/30 shrink-0 mx-0.5" />
+						<ChevronRight class="h-3 w-3 text-muted-foreground/30 shrink-0" />
 					{/if}
-					<div class="group inline-flex items-center gap-0 rounded-md bg-secondary text-sm transition-all hover:bg-secondary/80">
+					<div class="group inline-flex items-center rounded-md bg-secondary text-xs shrink-0 transition-all hover:bg-secondary/80">
 						<button
 							type="button"
 							onclick={() => editLegCity(leg.id)}
-							class="flex items-center gap-1.5 pl-2.5 pr-2 py-1.5 transition-colors rounded-l-md hover:bg-accent"
+							class="pl-2 pr-1 py-1 transition-colors rounded-l-md hover:bg-accent text-secondary-foreground"
 						>
-							<span class="text-secondary-foreground">{leg.city}</span>
+							{leg.city}
 						</button>
-						<span class="w-px h-4 bg-border/50"></span>
-						<label class="flex items-center gap-1.5 pl-2 pr-1.5 py-1.5 cursor-pointer hover:bg-accent transition-colors">
-							<Calendar class="h-3 w-3 text-muted-foreground/50" />
-							<input
-								type="date"
-								value={leg.date}
-								onchange={(e) => updateLegDate(leg.id, (e.target as HTMLInputElement).value)}
-								class="bg-transparent text-xs text-muted-foreground w-[90px] outline-none cursor-pointer hover:text-secondary-foreground transition-colors"
-							/>
-						</label>
+						<Popover.Root bind:open={() => openPopoverId === leg.id, (v) => openPopoverId = v ? leg.id : null}>
+							<Popover.Trigger
+								class="px-1 py-1 text-muted-foreground hover:text-secondary-foreground hover:bg-accent transition-colors cursor-pointer"
+							>
+								{formatChipDate(leg.date)}
+							</Popover.Trigger>
+							<Popover.Content class="w-auto p-0" align="start">
+								<Calendar
+									value={isoToCalendarDate(leg.date)}
+									onValueChange={(v) => {
+										if (v) {
+											updateLegDate(leg.id, calendarDateToIso(v));
+											openPopoverId = null;
+										}
+									}}
+								/>
+							</Popover.Content>
+						</Popover.Root>
 						<button
 							type="button"
 							onclick={() => removeLeg(leg.id)}
-							class="p-1 mr-0.5 rounded text-muted-foreground/30 hover:text-secondary-foreground hover:bg-accent transition-colors opacity-0 group-hover:opacity-100"
+							class="px-1 py-1 rounded-r-md text-muted-foreground/30 hover:text-secondary-foreground hover:bg-accent transition-colors opacity-0 group-hover:opacity-100"
 						>
-							<X class="h-3 w-3" />
+							<X class="h-2.5 w-2.5" />
 						</button>
 					</div>
 				{/each}
