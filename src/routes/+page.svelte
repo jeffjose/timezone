@@ -12,7 +12,7 @@
 		type TimezoneInfo,
 		type SearchResult,
 	} from '$lib/timezones';
-	import { X, ChevronUp, ChevronDown, Search, Globe, ChevronLeft, ChevronRight, CalendarDays, Plus, EllipsisVertical, Trash2, Copy, MoveHorizontal, LocateFixed, Briefcase, TrendingUp, Sunset } from '@lucide/svelte';
+	import { X, ChevronUp, ChevronDown, Search, Globe, ChevronLeft, ChevronRight, CalendarDays, Plus, EllipsisVertical, Trash2, Copy, MoveHorizontal, LocateFixed, Briefcase, TrendingUp, Sunset, FlipVertical2 } from '@lucide/svelte';
 	import { DropdownMenu } from 'bits-ui';
 
 	interface SelectedTz {
@@ -117,8 +117,8 @@
 	let dotTooltip: { markerId: number; rowIndex: number; x: number; y: number; position: 'above' | 'below' } | null = $state(null);
 	// Working hours highlight
 	let showWorkingHours = $state(false);
-	// Day progress arc mode: 'arc' (sine/cosine) or 'progress' (linear sawtooth)
-	let arcMode: 'arc' | 'progress' = $state('arc');
+	// Day progress arc mode: 'arc' (sine/cosine) or 'progress' (linear sawtooth) or 'half' (top/bottom halves)
+	let arcMode: 'arc' | 'progress' | 'half' = $state('arc');
 
 	function saveSettings() {
 		try {
@@ -132,7 +132,7 @@
 			if (!raw) return;
 			const s = JSON.parse(raw);
 			if (typeof s.showWorkingHours === 'boolean') showWorkingHours = s.showWorkingHours;
-			if (s.arcMode === 'arc' || s.arcMode === 'progress') arcMode = s.arcMode;
+			if (s.arcMode === 'arc' || s.arcMode === 'progress' || s.arcMode === 'half') arcMode = s.arcMode;
 		} catch {}
 	}
 
@@ -802,6 +802,67 @@
 		return d;
 	}
 
+	// Half-day path: top half filled for first half of range, bottom half for second half
+	// Normal: AM (12a-12p) = top, PM (12p-12a) = bottom
+	// Working hours: Morning (9a-1p) = top, Afternoon (1p-5p) = bottom, outside = nothing
+	function getHalfPath(tz: string, workMode: boolean = false): string {
+		const height = 40;
+		const mid = height / 2;
+		const offsetMinutes = getTimezoneOffset(tz, offsetBase);
+		const rangeStart = workMode ? 9 : 0;
+		const rangeLen = workMode ? 8 : 24;
+		const rangeMid = rangeStart + rangeLen / 2;
+
+		let d = '';
+		let prevBucket: 'top' | 'bottom' | 'none' = 'none';
+		let segStartX = 0;
+
+		function flushSegment(endX: number) {
+			if (prevBucket === 'top') {
+				d += `M ${segStartX} 0 L ${endX} 0 L ${endX} ${mid} L ${segStartX} ${mid} Z `;
+			} else if (prevBucket === 'bottom') {
+				d += `M ${segStartX} ${mid} L ${endX} ${mid} L ${endX} ${height} L ${segStartX} ${height} Z `;
+			}
+		}
+
+		const steps = TOTAL_CELLS * 2;
+		for (let i = 0; i <= steps; i++) {
+			const hourIndex = i / 2;
+			const utcHour = renderStart + hourIndex;
+			const localH = (((utcHour * 60 + offsetMinutes) / 60) % 24 + 24) % 24;
+			const x = (hourIndex / TOTAL_CELLS) * 100;
+
+			let bucket: 'top' | 'bottom' | 'none';
+			if (workMode) {
+				const intoRange = localH - rangeStart;
+				if (intoRange >= 0 && intoRange < rangeLen / 2) {
+					bucket = 'top';     // morning
+				} else if (intoRange >= rangeLen / 2 && intoRange < rangeLen) {
+					bucket = 'bottom';  // afternoon
+				} else {
+					bucket = 'none';
+				}
+			} else {
+				if (localH >= 0 && localH < 12) {
+					bucket = 'top';     // AM
+				} else {
+					bucket = 'bottom';  // PM
+				}
+			}
+
+			if (bucket !== prevBucket) {
+				if (prevBucket !== 'none') flushSegment(x);
+				segStartX = x;
+				prevBucket = bucket;
+			}
+		}
+		// Flush last segment
+		const lastX = (TOTAL_CELLS / TOTAL_CELLS) * 100;
+		if (prevBucket !== 'none') flushSegment(lastX);
+
+		return d;
+	}
+
 	// Cache daylight paths — only recompute when renderAnchor or timezones change, not on drag
 	let cachedDaylightPaths = $derived(
 		new Map(selectedTimezones.map(e => [e.id, getDaylightPath(e.id, showWorkingHours)]))
@@ -809,6 +870,10 @@
 
 	let cachedProgressPaths = $derived(
 		new Map(selectedTimezones.map(e => [e.id, getProgressPath(e.id, showWorkingHours)]))
+	);
+
+	let cachedHalfPaths = $derived(
+		new Map(selectedTimezones.map(e => [e.id, getHalfPath(e.id, showWorkingHours)]))
 	);
 
 	function formatTimeWithSeconds(tz: string): string {
@@ -1407,6 +1472,18 @@ function handleMarkerLineClick(e: MouseEvent, markerId: number) {
 						<TrendingUp class="h-3 w-3" />
 						Progress
 					</button>
+					<div class="w-px h-4 bg-border"></div>
+					<button
+						type="button"
+						onclick={() => { arcMode = 'half'; saveSettings(); }}
+						class="px-2 py-1 text-[11px] font-medium transition-colors flex items-center gap-1
+							{arcMode === 'half'
+								? 'bg-accent text-foreground'
+								: 'text-muted-foreground hover:text-foreground hover:bg-accent/50'}"
+					>
+						<FlipVertical2 class="h-3 w-3" />
+						Half
+					</button>
 				</div>
 			</div>
 		</div>
@@ -1774,7 +1851,7 @@ function handleMarkerLineClick(e: MouseEvent, markerId: number) {
 											{#if showWorkingHours}
 												<!-- Dimmed version for non-working hours -->
 												<path
-													d={(arcMode === 'progress' ? cachedProgressPaths.get(entry.id) : cachedDaylightPaths.get(entry.id)) ?? ''}
+													d={(arcMode === 'progress' ? cachedProgressPaths.get(entry.id) : arcMode === 'half' ? cachedHalfPaths.get(entry.id) : cachedDaylightPaths.get(entry.id)) ?? ''}
 													fill="url(#daylight-{rowIndex})"
 													stroke="rgba(255,255,255,0.05)"
 													stroke-width="0.4"
@@ -1791,7 +1868,7 @@ function handleMarkerLineClick(e: MouseEvent, markerId: number) {
 													{/each}
 												</clipPath>
 												<path
-													d={(arcMode === 'progress' ? cachedProgressPaths.get(entry.id) : cachedDaylightPaths.get(entry.id)) ?? ''}
+													d={(arcMode === 'progress' ? cachedProgressPaths.get(entry.id) : arcMode === 'half' ? cachedHalfPaths.get(entry.id) : cachedDaylightPaths.get(entry.id)) ?? ''}
 													fill="url(#daylight-{rowIndex})"
 													stroke="rgba(255,255,255,0.15)"
 													stroke-width="0.4"
@@ -1800,7 +1877,7 @@ function handleMarkerLineClick(e: MouseEvent, markerId: number) {
 												/>
 											{:else}
 												<path
-													d={(arcMode === 'progress' ? cachedProgressPaths.get(entry.id) : cachedDaylightPaths.get(entry.id)) ?? ''}
+													d={(arcMode === 'progress' ? cachedProgressPaths.get(entry.id) : arcMode === 'half' ? cachedHalfPaths.get(entry.id) : cachedDaylightPaths.get(entry.id)) ?? ''}
 													fill="url(#daylight-{rowIndex})"
 													stroke="rgba(255,255,255,0.15)"
 													stroke-width="0.4"
