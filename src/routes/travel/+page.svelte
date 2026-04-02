@@ -50,16 +50,16 @@
 		[...legs].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
 	);
 
-	// Timeline data: for each leg, compute local times across the trip span
+	// Timeline: always show exactly 48 hours (2 days) — enough to compare day/night cycles
+	const TIMELINE_HOURS = 48;
+
 	let tripSpan = $derived((() => {
-		if (sortedLegs.length < 2) return { startDate: new Date(), days: 3 };
+		if (sortedLegs.length < 2) return { startDate: new Date(), days: 2 };
 		const first = new Date(sortedLegs[0].date);
-		const last = new Date(sortedLegs[sortedLegs.length - 1].date);
-		const days = Math.ceil((last.getTime() - first.getTime()) / 86400000) + 2; // +2 for padding
-		return { startDate: first, days: Math.max(days, 3) };
+		return { startDate: first, days: 2 };
 	})());
 
-	let totalHours = $derived(tripSpan.days * 24);
+	let totalHours = TIMELINE_HOURS;
 
 	// For each leg, compute the offset and local time info
 	let legTimelines = $derived(sortedLegs.map((leg, i) => {
@@ -376,8 +376,8 @@
 		return labels;
 	}
 
-	// Pixel height per hour for the vertical timeline
-	const PX_PER_HOUR = 28;
+	// Timeline container height — measured from DOM
+	let timelineContainerHeight = $state(0);
 
 	// --- Lifecycle ---
 	onMount(() => {
@@ -399,7 +399,7 @@
 	<title>Travel — Timezone</title>
 </svelte:head>
 
-<div class="min-h-screen bg-background text-foreground flex flex-col select-none {ready ? '' : 'invisible'}">
+<div class="h-screen bg-background text-foreground flex flex-col select-none overflow-hidden {ready ? '' : 'invisible'}">
 	<!-- Header -->
 	<div class="flex flex-col items-center pt-8 max-sm:pt-4 pb-6 max-sm:pb-3 px-4">
 		<div class="flex items-center gap-3 mb-2">
@@ -519,21 +519,19 @@
 
 	<!-- Timeline visualization — vertical: time on Y, cities as columns on X -->
 	{#if sortedLegs.length >= 2}
-		{@const timelineStart = legTimelines[0].arrivalHour - 6}
-		{@const timelineEnd = legTimelines[legTimelines.length - 1].departureHour + 6}
-		{@const timelineRange = timelineEnd - timelineStart}
-		{@const timelineHeight = timelineRange * PX_PER_HOUR}
+		{@const timelineStart = legTimelines[0].arrivalHour}
+		{@const timelineEnd = timelineStart + TIMELINE_HOURS}
+		{@const timelineRange = TIMELINE_HOURS}
 		{@const timeLabels = getTimeLabels(timelineStart, timelineEnd)}
 		{@const nowPct = ((nowHourFromStart - timelineStart) / timelineRange) * 100}
 		{@const nowInRange = nowPct >= 0 && nowPct <= 100}
 		{@const homeTz = sortedLegs[0].tzId}
-		{@const homeNightBlocks = getNightBlocks(homeTz, timelineStart, timelineEnd)}
 		{@const allColumns = [...legTimelines, { id: -1, city: 'Body Clock', tzId: homeTz, date: sortedLegs[0].date, offsetMin: getTimezoneOffset(homeTz, new Date(sortedLegs[0].date)), abbr: getTimezoneAbbr(homeTz, new Date(sortedLegs[0].date)), offsetStr: formatOffset(getTimezoneOffset(homeTz, new Date(sortedLegs[0].date))), arrivalHour: legTimelines[0].arrivalHour, departureHour: legTimelines[legTimelines.length - 1].departureHour, isBodyClock: true }]}
 
-		<div class="flex-1 px-4 pb-8 max-w-4xl mx-auto w-full">
-			<div class="flex gap-0">
+		<div class="flex-1 flex flex-col px-4 pb-2 max-w-4xl mx-auto w-full min-h-0">
+			<div class="flex gap-0 flex-1 min-h-0">
 				<!-- Y-axis: time labels -->
-				<div class="shrink-0 w-[72px] max-sm:w-[52px] relative" style="height: {timelineHeight}px">
+				<div class="shrink-0 w-[72px] max-sm:w-[52px] relative flex-1">
 					{#each timeLabels as label}
 						{@const pct = ((label.hour - timelineStart) / timelineRange) * 100}
 						{#if pct >= 0 && pct <= 100}
@@ -569,7 +567,7 @@
 					{@const stayHeight = departurePct - arrivalPct}
 					{@const timeDiff = colIdx > 0 && !isBodyClock ? getTimeDiff(legTimelines[0].tzId, col.tzId, new Date(col.date)) : null}
 
-					<div class="flex flex-col flex-1 min-w-0 {colIdx === allColumns.length - 1 ? '' : ''} {isBodyClock ? 'ml-2' : colIdx > 0 ? 'ml-px' : ''}">
+					<div class="flex flex-col flex-1 min-w-0 min-h-0 {isBodyClock ? 'ml-2' : colIdx > 0 ? 'ml-px' : ''}">
 						<!-- Column header -->
 						<div class="text-center pb-3 mb-0">
 							{#if isBodyClock}
@@ -591,8 +589,7 @@
 
 						<!-- Vertical strip -->
 						<div
-							class="relative w-full rounded-lg overflow-hidden {isBodyClock ? 'border border-dashed border-amber-500/20' : 'border border-border/50'} bg-card"
-							style="height: {timelineHeight}px"
+							class="relative w-full rounded-lg overflow-hidden flex-1 {isBodyClock ? 'border border-dashed border-amber-500/20' : 'border border-border/50'} bg-card"
 						>
 							<!-- Night blocks -->
 							{#each nightBlocks as block}
@@ -651,7 +648,7 @@
 			<!-- (Between adjacent city columns, diagonal lines connecting departure→arrival) -->
 
 			<!-- Legend -->
-			<div class="mt-6 flex items-center gap-4 text-[10px] text-muted-foreground/50 justify-center">
+			<div class="mt-2 flex items-center gap-4 text-[10px] text-muted-foreground/50 justify-center shrink-0">
 				<span class="flex items-center gap-1">
 					<span class="w-3 h-3 rounded-sm bg-blue-500/[0.15] border border-blue-500/30"></span>
 					Your stay
