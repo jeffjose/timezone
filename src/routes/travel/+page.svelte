@@ -50,13 +50,15 @@
 		[...legs].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
 	);
 
-	// Timeline: always show exactly 48 hours (2 days) — enough to compare day/night cycles
-	const TIMELINE_HOURS = 48;
+	// Timeline: show 72 hours (yesterday/today/tomorrow) centered on now
+	const TIMELINE_HOURS = 72;
 
 	let tripSpan = $derived((() => {
-		if (sortedLegs.length < 2) return { startDate: new Date(), days: 2 };
-		const first = new Date(sortedLegs[0].date);
-		return { startDate: first, days: 2 };
+		// Start date is just used as reference for hour offsets
+		const start = new Date();
+		start.setUTCHours(0, 0, 0, 0);
+		start.setDate(start.getDate() - 1); // yesterday midnight UTC
+		return { startDate: start, days: 3 };
 	})());
 
 	let totalHours = TIMELINE_HOURS;
@@ -325,10 +327,10 @@
 		return `${sign}${diff}h`;
 	}
 
-	// Night blocks for a timezone — returns top/height percentages (vertical)
-	function getNightBlocks(tzId: string, startHour: number, endHour: number): { top: number; height: number }[] {
-		const offsetMinutes = getTimezoneOffset(tzId, new Date(sortedLegs[0]?.date || new Date()));
-		const blocks: { top: number; height: number }[] = [];
+	// Night blocks for a timezone — returns left/width percentages (horizontal)
+	function getNightBlocks(tzId: string, startHour: number, endHour: number): { left: number; width: number }[] {
+		const offsetMinutes = getTimezoneOffset(tzId, new Date());
+		const blocks: { left: number; width: number }[] = [];
 		const range = endHour - startHour;
 		let blockStart: number | null = null;
 
@@ -340,33 +342,61 @@
 				blockStart = h;
 			} else if (!isNight && blockStart !== null) {
 				blocks.push({
-					top: ((blockStart - startHour) / range) * 100,
-					height: ((h - blockStart) / range) * 100,
+					left: ((blockStart - startHour) / range) * 100,
+					width: ((h - blockStart) / range) * 100,
 				});
 				blockStart = null;
 			}
 		}
 		if (blockStart !== null) {
 			blocks.push({
-				top: ((blockStart - startHour) / range) * 100,
-				height: ((endHour - blockStart) / range) * 100,
+				left: ((blockStart - startHour) / range) * 100,
+				width: ((endHour - blockStart) / range) * 100,
 			});
 		}
 		return blocks;
 	}
 
-	// Time labels along the Y axis
+	// Daylight arc SVG path — cosine curve peaking at 1pm local time
+	function getDaylightPath(tzId: string, startHour: number, endHour: number): string {
+		const offsetMinutes = getTimezoneOffset(tzId, new Date());
+		const range = endHour - startHour;
+		const height = 40;
+		const maxArc = height * 0.65;
+		const sampleRate = 4; // samples per hour
+		const totalSamples = range * sampleRate;
+		const points: { x: number; y: number }[] = [];
+
+		for (let i = 0; i <= totalSamples; i++) {
+			const utcHour = startHour + (i / sampleRate);
+			const continuousLocalHour = (utcHour * 60 + offsetMinutes) / 60;
+			// Full day cosine peaking at 1pm
+			const radians = ((continuousLocalHour - 13) / 24) * Math.PI * 2;
+			const val = (Math.cos(radians) + 1) / 2;
+			const x = ((utcHour - startHour) / range) * 100;
+			const y = height - val * maxArc;
+			points.push({ x, y });
+		}
+
+		let d = `M ${points[0].x} ${points[0].y}`;
+		for (let i = 1; i < points.length; i++) {
+			const prev = points[i - 1];
+			const curr = points[i];
+			const cpx = (prev.x + curr.x) / 2;
+			d += ` C ${cpx} ${prev.y}, ${cpx} ${curr.y}, ${curr.x} ${curr.y}`;
+		}
+		d += ` L 100 ${height} L 0 ${height} Z`;
+		return d;
+	}
+
+	// Time labels along the X axis
 	function getTimeLabels(startHour: number, endHour: number): { hour: number; label: string; dateLabel: string | null }[] {
 		const labels: { hour: number; label: string; dateLabel: string | null }[] = [];
-		const range = endHour - startHour;
-		const step = range > 96 ? 12 : 6;
-		let lastDateLabel = '';
+		const step = 6;
 		for (let h = Math.ceil(startHour / step) * step; h <= endHour; h += step) {
 			const date = new Date(tripSpan.startDate.getTime() + h * 3600000);
 			const utcHour = date.getUTCHours();
 			const dateStr = new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', weekday: 'short' }).format(date);
-			const isNewDay = dateStr !== lastDateLabel && utcHour < step;
-			lastDateLabel = dateStr;
 			labels.push({
 				hour: h,
 				label: `${utcHour}:00`,
@@ -375,9 +405,6 @@
 		}
 		return labels;
 	}
-
-	// Timeline container height — measured from DOM
-	let timelineContainerHeight = $state(0);
 
 	// --- Lifecycle ---
 	onMount(() => {
@@ -517,69 +544,64 @@
 		{/if}
 	</div>
 
-	<!-- Timeline visualization — vertical: time on Y, cities as columns on X -->
+	<!-- Timeline visualization — horizontal: time on X (left→right), cities as rows on Y -->
 	{#if sortedLegs.length >= 2}
-		{@const timelineStart = legTimelines[0].arrivalHour}
-		{@const timelineEnd = timelineStart + TIMELINE_HOURS}
+		{@const timelineStart = 0}
+		{@const timelineEnd = TIMELINE_HOURS}
 		{@const timelineRange = TIMELINE_HOURS}
 		{@const timeLabels = getTimeLabels(timelineStart, timelineEnd)}
 		{@const nowPct = ((nowHourFromStart - timelineStart) / timelineRange) * 100}
 		{@const nowInRange = nowPct >= 0 && nowPct <= 100}
 		{@const homeTz = sortedLegs[0].tzId}
-		{@const allColumns = [...legTimelines, { id: -1, city: 'Body Clock', tzId: homeTz, date: sortedLegs[0].date, offsetMin: getTimezoneOffset(homeTz, new Date(sortedLegs[0].date)), abbr: getTimezoneAbbr(homeTz, new Date(sortedLegs[0].date)), offsetStr: formatOffset(getTimezoneOffset(homeTz, new Date(sortedLegs[0].date))), arrivalHour: legTimelines[0].arrivalHour, departureHour: legTimelines[legTimelines.length - 1].departureHour, isBodyClock: true }]}
+		{@const allRows = [...legTimelines, { id: -1, city: 'Body Clock', tzId: homeTz, date: sortedLegs[0].date, offsetMin: getTimezoneOffset(homeTz, new Date(sortedLegs[0].date)), abbr: getTimezoneAbbr(homeTz, new Date(sortedLegs[0].date)), offsetStr: formatOffset(getTimezoneOffset(homeTz, new Date(sortedLegs[0].date))), arrivalHour: legTimelines[0].arrivalHour, departureHour: legTimelines[legTimelines.length - 1].departureHour, isBodyClock: true }]}
 
 		<div class="flex-1 flex flex-col px-4 pb-2 max-w-4xl mx-auto w-full min-h-0">
-			<div class="flex gap-0 flex-1 min-h-0">
-				<!-- Y-axis: time labels -->
-				<div class="shrink-0 w-[72px] max-sm:w-[52px] relative flex-1">
-					{#each timeLabels as label}
-						{@const pct = ((label.hour - timelineStart) / timelineRange) * 100}
-						{#if pct >= 0 && pct <= 100}
-							<div
-								class="absolute right-2 -translate-y-1/2 text-right"
-								style="top: {pct}%"
-							>
-								{#if label.dateLabel}
-									<div class="text-[9px] text-muted-foreground/70 font-medium">{label.dateLabel}</div>
-								{/if}
-								<div class="text-[10px] text-muted-foreground/40 tabular-nums">{label.label}</div>
-							</div>
-						{/if}
-					{/each}
-
-					<!-- Now label -->
-					{#if nowInRange}
+			<!-- X-axis: time labels (top) -->
+			<div class="relative h-6 ml-[140px] max-sm:ml-[90px] shrink-0 mb-1">
+				{#each timeLabels as label}
+					{@const pct = ((label.hour - timelineStart) / timelineRange) * 100}
+					{#if pct >= 0 && pct <= 100}
 						<div
-							class="absolute right-2 -translate-y-1/2"
-							style="top: {nowPct}%"
+							class="absolute bottom-0 -translate-x-1/2"
+							style="left: {pct}%"
 						>
-							<span class="text-[9px] font-medium text-red-500/70">now</span>
+							{#if label.dateLabel}
+								<div class="text-[9px] text-muted-foreground/70 font-medium whitespace-nowrap">{label.dateLabel}</div>
+							{/if}
+							<div class="text-[10px] text-muted-foreground/40 tabular-nums">{label.label}</div>
 						</div>
 					{/if}
-				</div>
+				{/each}
+			</div>
 
-				<!-- Columns: one per city + body clock -->
-				{#each allColumns as col, colIdx}
-					{@const isBodyClock = 'isBodyClock' in col && col.isBodyClock}
-					{@const nightBlocks = getNightBlocks(col.tzId, timelineStart, timelineEnd)}
-					{@const arrivalPct = ((col.arrivalHour - timelineStart) / timelineRange) * 100}
-					{@const departurePct = ((col.departureHour - timelineStart) / timelineRange) * 100}
-					{@const stayHeight = departurePct - arrivalPct}
-					{@const timeDiff = colIdx > 0 && !isBodyClock ? getTimeDiff(legTimelines[0].tzId, col.tzId, new Date(col.date)) : null}
+			<!-- Rows -->
+			<div class="flex flex-col flex-1 min-h-0 gap-1">
+				{#each allRows as row, rowIdx}
+					{@const isBodyClock = 'isBodyClock' in row && row.isBodyClock}
+					{@const nightBlocks = getNightBlocks(row.tzId, timelineStart, timelineEnd)}
+					{@const arrivalPct = Math.max(0, ((row.arrivalHour - timelineStart) / timelineRange) * 100)}
+					{@const departurePct = Math.min(100, ((row.departureHour - timelineStart) / timelineRange) * 100)}
+					{@const stayWidth = departurePct - arrivalPct}
+					{@const timeDiff = rowIdx > 0 && !isBodyClock ? getTimeDiff(legTimelines[0].tzId, row.tzId, new Date(row.date)) : null}
 
-					<div class="flex flex-col flex-1 min-w-0 min-h-0 {isBodyClock ? 'ml-2' : colIdx > 0 ? 'ml-px' : ''}">
-						<!-- Column header -->
-						<div class="text-center pb-3 mb-0">
+					<!-- Separator before body clock -->
+					{#if isBodyClock}
+						<div class="border-t border-border/20 mt-1 pt-1"></div>
+					{/if}
+
+					<div class="flex items-stretch gap-0 flex-1 min-h-0">
+						<!-- Row label -->
+						<div class="w-[140px] max-sm:w-[90px] shrink-0 flex flex-col justify-center pr-3 text-right">
 							{#if isBodyClock}
-								<div class="text-xs font-medium text-amber-500/60 flex items-center justify-center gap-1">
+								<div class="text-xs font-medium text-amber-500/60 flex items-center justify-end gap-1">
 									<Clock class="h-3 w-3" />
 									Body Clock
 								</div>
 								<div class="text-[10px] text-muted-foreground/50">{sortedLegs[0].city} time</div>
 							{:else}
-								<div class="text-sm font-medium text-secondary-foreground truncate px-1">{col.city}</div>
+								<div class="font-medium text-sm text-secondary-foreground truncate">{row.city}</div>
 								<div class="text-[10px] text-muted-foreground/50">
-									{col.abbr} · {col.offsetStr}
+									{row.abbr} · {row.offsetStr}
 								</div>
 								{#if timeDiff}
 									<div class="text-[9px] text-muted-foreground/40">{timeDiff}</div>
@@ -587,32 +609,48 @@
 							{/if}
 						</div>
 
-						<!-- Vertical strip -->
+						<!-- Horizontal strip -->
 						<div
-							class="relative w-full rounded-lg overflow-hidden flex-1 {isBodyClock ? 'border border-dashed border-amber-500/20' : 'border border-border/50'} bg-card"
+							class="relative flex-1 rounded-lg overflow-hidden {isBodyClock ? 'border border-dashed border-amber-500/20' : 'border border-border/50'} bg-card"
 						>
 							<!-- Night blocks -->
 							{#each nightBlocks as block}
 								<div
-									class="absolute inset-x-0 {isBodyClock ? 'bg-amber-500/[0.06]' : 'bg-foreground/[0.04]'}"
-									style="top: {block.top}%; height: {block.height}%"
+									class="absolute inset-y-0 {isBodyClock ? 'bg-amber-500/[0.06]' : 'bg-foreground/[0.04]'}"
+									style="left: {block.left}%; width: {block.width}%"
 								></div>
 							{/each}
+
+							<!-- Daylight arc -->
+							<svg
+								class="absolute inset-0 w-full h-full pointer-events-none"
+								viewBox="0 0 100 40"
+								preserveAspectRatio="none"
+							>
+								<path
+									d={getDaylightPath(row.tzId, timelineStart, timelineEnd)}
+									fill={isBodyClock ? 'rgb(245, 158, 11)' : 'white'}
+									fill-opacity={isBodyClock ? 0.08 : 0.06}
+									stroke={isBodyClock ? 'rgb(245, 158, 11)' : 'white'}
+									stroke-opacity={isBodyClock ? 0.15 : 0.1}
+									stroke-width="0.4"
+								/>
+							</svg>
 
 							<!-- Hour gridlines -->
 							{#each timeLabels as label}
 								{@const pct = ((label.hour - timelineStart) / timelineRange) * 100}
 								{#if pct > 1 && pct < 99}
 									<div
-										class="absolute inset-x-0 h-px {isBodyClock ? 'bg-amber-500/10' : 'bg-border/30'}"
-										style="top: {pct}%"
+										class="absolute inset-y-0 w-px {isBodyClock ? 'bg-amber-500/10' : 'bg-border/30'}"
+										style="left: {pct}%"
 									></div>
 									<!-- Local time at this gridline -->
 									<div
-										class="absolute left-1 text-[9px] {isBodyClock ? 'text-amber-500/30' : 'text-muted-foreground/30'}"
-										style="top: {pct}%"
+										class="absolute bottom-0.5 text-[9px] -translate-x-1/2 {isBodyClock ? 'text-amber-500/30' : 'text-muted-foreground/30'}"
+										style="left: {pct}%"
 									>
-										{getLocalTimeAtHour(col.tzId, label.hour)}
+										{getLocalTimeAtHour(row.tzId, label.hour)}
 									</div>
 								{/if}
 							{/each}
@@ -620,32 +658,29 @@
 							<!-- Stay period highlight (not for body clock) -->
 							{#if !isBodyClock}
 								<div
-									class="absolute inset-x-0 border-y-2 border-blue-500/30 bg-blue-500/[0.08]"
-									style="top: {arrivalPct}%; height: {stayHeight}%"
+									class="absolute inset-y-0 border-x-2 border-blue-500/30 bg-blue-500/[0.08]"
+									style="left: {arrivalPct}%; width: {stayWidth}%"
 								>
-									<div class="absolute top-1 left-1 text-[9px] font-medium text-blue-400/70">
-										{getLocalTimeAtHour(col.tzId, col.arrivalHour)}
+									<div class="absolute top-0.5 left-1 text-[9px] font-medium text-blue-400/70">
+										{getLocalTimeAtHour(row.tzId, row.arrivalHour)}
 									</div>
-									<div class="absolute top-1 right-1 text-[8px] text-blue-400/50">
-										{formatDateShort(col.date)}
+									<div class="absolute top-0.5 right-1 text-[8px] text-blue-400/50">
+										{formatDateShort(row.date)}
 									</div>
 								</div>
 							{/if}
 
-							<!-- Now line (horizontal) -->
+							<!-- Now line (vertical) -->
 							{#if nowInRange}
 								<div
-									class="absolute inset-x-0 h-px bg-red-500/60"
-									style="top: {nowPct}%"
+									class="absolute inset-y-0 w-px bg-red-500/60"
+									style="left: {nowPct}%"
 								></div>
 							{/if}
 						</div>
 					</div>
 				{/each}
 			</div>
-
-			<!-- Flight connectors as SVG overlay -->
-			<!-- (Between adjacent city columns, diagonal lines connecting departure→arrival) -->
 
 			<!-- Legend -->
 			<div class="mt-2 flex items-center gap-4 text-[10px] text-muted-foreground/50 justify-center shrink-0">
@@ -662,14 +697,13 @@
 					Body clock
 				</span>
 				<span class="flex items-center gap-1">
-					<span class="h-px w-3 bg-red-500/60"></span>
+					<span class="w-px h-3 bg-red-500/60"></span>
 					Now
 				</span>
 			</div>
 		</div>
 
 	{:else if sortedLegs.length === 1}
-		<!-- Single leg: prompt to add more -->
 		<div class="flex-1 flex flex-col items-center justify-center text-muted-foreground/50 gap-2 pb-20">
 			<Plane class="h-8 w-8 mb-2" />
 			<p class="text-sm">Add your next destination to see the timeline</p>
@@ -677,7 +711,6 @@
 		</div>
 
 	{:else}
-		<!-- Empty state -->
 		<div class="flex-1 flex flex-col items-center justify-center text-muted-foreground/50 gap-2 pb-20">
 			<Globe class="h-8 w-8 mb-2" />
 			<p class="text-sm">Plan your trip across timezones</p>
