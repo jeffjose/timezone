@@ -429,10 +429,12 @@
 			if (samples < 2) continue;
 
 			// Determine calendar date in the HOME timezone for color consistency
+			// Use the ROW's tz to determine which calendar date this hump represents
 			const midUtcHour = (segStart + segEnd) / 2;
 			const absDate = new Date(tripSpan.startDate.getTime() + midUtcHour * 3600000);
-			const homeDateStr = new Intl.DateTimeFormat('en-CA', { timeZone: homeTzId, year: 'numeric', month: '2-digit', day: '2-digit' }).format(absDate);
-			const dayOffset = Math.round((new Date(homeDateStr).getTime() - new Date(homeTodayStr).getTime()) / 86400000);
+			const rowDateStr = new Intl.DateTimeFormat('en-CA', { timeZone: tzId, year: 'numeric', month: '2-digit', day: '2-digit' }).format(absDate);
+			// Map calendar date to a stable color: offset from home tz's "today"
+			const dayOffset = Math.round((new Date(rowDateStr).getTime() - new Date(homeTodayStr).getTime()) / 86400000);
 			const color = getDayColor(dayOffset);
 
 			const points: { x: number; y: number }[] = [];
@@ -512,9 +514,9 @@
 			if (pct > 1 && pct < 99) {
 				const absDate = new Date(tripSpan.startDate.getTime() + utcH * 3600000);
 				const label = new Intl.DateTimeFormat('en-US', { timeZone: tzId, month: 'short', day: 'numeric', weekday: 'short' }).format(absDate);
-				// Color based on HOME timezone's calendar date
-				const homeDateStr = new Intl.DateTimeFormat('en-CA', { timeZone: homeTzId, year: 'numeric', month: '2-digit', day: '2-digit' }).format(absDate);
-				const dayOffset = Math.round((new Date(homeDateStr).getTime() - new Date(homeTodayStr).getTime()) / 86400000);
+				// Color: the date starting at this midnight, in the row's tz
+				const rowDateStr = new Intl.DateTimeFormat('en-CA', { timeZone: tzId, year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date(absDate.getTime() + 3600000));
+				const dayOffset = Math.round((new Date(rowDateStr).getTime() - new Date(homeTodayStr).getTime()) / 86400000);
 				const color = getDayColor(dayOffset);
 				results.push({ pct, label, color });
 			}
