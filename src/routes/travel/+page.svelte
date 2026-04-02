@@ -110,83 +110,26 @@
 		...legs.map(l => ({ ...l, isHome: false as const })),
 	]);
 
-	// Build all rows: real legs + ghost intermediate days
-	interface TimelineRow {
-		id: number;
-		city: string;
-		tzId: string;
-		date: string;
-		isHome: boolean;
-		isGhost: boolean;
-		ghostLabel?: string; // e.g. "Apr 4" for ghost days
-		offsetMin: number;
-		abbr: string;
-		offsetStr: string;
-		arrivalHour: number;
-		departureHour: number;
-	}
+	let legTimelines = $derived(allLegs.map((leg, i) => {
+		const offsetMin = getTimezoneOffset(leg.tzId, new Date(leg.date));
+		const abbr = getTimezoneAbbr(leg.tzId, new Date(leg.date));
+		const offsetStr = formatOffset(offsetMin);
+		const legDate = new Date(leg.date);
+		const arrivalHour = (legDate.getTime() - tripSpan.startDate.getTime()) / 3600000;
+		const nextLeg = allLegs[i + 1];
+		const departureHour = nextLeg
+			? (new Date(nextLeg.date).getTime() - tripSpan.startDate.getTime()) / 3600000
+			: arrivalHour + 24;
 
-	let legTimelines: TimelineRow[] = $derived((() => {
-		const rows: TimelineRow[] = [];
-
-		for (let i = 0; i < allLegs.length; i++) {
-			const leg = allLegs[i];
-			const offsetMin = getTimezoneOffset(leg.tzId, new Date(leg.date));
-			const abbr = getTimezoneAbbr(leg.tzId, new Date(leg.date));
-			const offsetStr = formatOffset(offsetMin);
-			const legDate = new Date(leg.date);
-			const arrivalHour = (legDate.getTime() - tripSpan.startDate.getTime()) / 3600000;
-			const nextLeg = allLegs[i + 1];
-			const departureHour = nextLeg
-				? (new Date(nextLeg.date).getTime() - tripSpan.startDate.getTime()) / 3600000
-				: arrivalHour + 24;
-
-			rows.push({
-				...leg,
-				isGhost: false,
-				offsetMin,
-				abbr,
-				offsetStr,
-				arrivalHour,
-				departureHour,
-			});
-
-			// Add ghost days between this leg and the next
-			if (nextLeg) {
-				const thisDate = new Date(leg.date + 'T12:00:00');
-				const nextDate = new Date(nextLeg.date + 'T12:00:00');
-				const daysBetween = Math.round((nextDate.getTime() - thisDate.getTime()) / 86400000);
-
-				// Ghost days use the NEXT destination's timezone (you're traveling toward it)
-				for (let d = 1; d < daysBetween; d++) {
-					const ghostDate = new Date(thisDate);
-					ghostDate.setDate(ghostDate.getDate() + d);
-					const ghostIso = ghostDate.toISOString().split('T')[0];
-					const ghostLabel = new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric' }).format(ghostDate);
-					const gOffsetMin = getTimezoneOffset(nextLeg.tzId, ghostDate);
-					const gAbbr = getTimezoneAbbr(nextLeg.tzId, ghostDate);
-					const gOffsetStr = formatOffset(gOffsetMin);
-					const gArrivalHour = (ghostDate.getTime() - 12 * 3600000 - tripSpan.startDate.getTime()) / 3600000; // midnight
-
-					rows.push({
-						id: -(1000 + i * 100 + d),
-						city: '',
-						tzId: nextLeg.tzId,
-						date: ghostIso,
-						isHome: false,
-						isGhost: true,
-						ghostLabel,
-						offsetMin: gOffsetMin,
-						abbr: gAbbr,
-						offsetStr: gOffsetStr,
-						arrivalHour: gArrivalHour,
-						departureHour: gArrivalHour + 24,
-					});
-				}
-			}
-		}
-		return rows;
-	})());
+		return {
+			...leg,
+			offsetMin,
+			abbr,
+			offsetStr,
+			arrivalHour,
+			departureHour,
+		};
+	}));
 
 	// Now position as hours from trip start
 	let nowHourFromStart = $derived(
@@ -471,7 +414,7 @@
 
 	// Per-day daylight arc segments — returns one path + color per day
 	// Colors are based on the home timezone's calendar date so Apr 2 = blue everywhere
-	function getDaylightArcs(tzId: string, startHour: number, endHour: number, homeTzId: string): { path: string; strokePath: string; color: { r: number; g: number; b: number }; dayOffset: number }[] {
+	function getDaylightArcs(tzId: string, startHour: number, endHour: number, homeTzId: string, activeDateIso?: string): { path: string; strokePath: string; color: { r: number; g: number; b: number }; dayOffset: number; isActive: boolean; dateIso: string }[] {
 		const offsetMinutes = getTimezoneOffset(tzId, new Date());
 		const homeOffsetMinutes = getTimezoneOffset(homeTzId, new Date());
 		const range = endHour - startHour;
@@ -493,7 +436,7 @@
 		// "Today" string in the home timezone (reference for color assignment)
 		const homeTodayStr = new Intl.DateTimeFormat('en-CA', { timeZone: homeTzId, year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
 
-		const arcs: { path: string; strokePath: string; color: { r: number; g: number; b: number }; dayOffset: number }[] = [];
+		const arcs: { path: string; strokePath: string; color: { r: number; g: number; b: number }; dayOffset: number; isActive: boolean; dateIso: string }[] = [];
 
 		for (let d = 0; d < dayBoundaries.length - 1; d++) {
 			const segStart = dayBoundaries[d];
@@ -501,14 +444,12 @@
 			const samples = Math.ceil((segEnd - segStart) * sampleRate);
 			if (samples < 2) continue;
 
-			// Determine calendar date in the HOME timezone for color consistency
-			// Use the ROW's tz to determine which calendar date this hump represents
 			const midUtcHour = (segStart + segEnd) / 2;
 			const absDate = new Date(tripSpan.startDate.getTime() + midUtcHour * 3600000);
 			const rowDateStr = new Intl.DateTimeFormat('en-CA', { timeZone: tzId, year: 'numeric', month: '2-digit', day: '2-digit' }).format(absDate);
-			// Map calendar date to a stable color: offset from home tz's "today"
 			const dayOffset = Math.round((new Date(rowDateStr).getTime() - new Date(homeTodayStr).getTime()) / 86400000);
 			const color = getDayColor(dayOffset);
+			const isActive = activeDateIso ? rowDateStr === activeDateIso : true;
 
 			const points: { x: number; y: number }[] = [];
 			for (let i = 0; i <= samples; i++) {
@@ -533,7 +474,7 @@
 			// Fill path (closed to baseline)
 			const fillD = strokeD + ` L ${points[points.length - 1].x} ${height} L ${points[0].x} ${height} Z`;
 
-			arcs.push({ path: fillD, strokePath: strokeD, color, dayOffset });
+			arcs.push({ path: fillD, strokePath: strokeD, color, dayOffset, isActive, dateIso: rowDateStr });
 		}
 
 		return arcs;
@@ -541,7 +482,7 @@
 
 	// Progress path — sawtooth per day, split into per-day segments with colors
 	// direction: 'down' = 100→0 (top to bottom), 'up' = 0→100 (bottom to top)
-	function getProgressArcs(tzId: string, startHour: number, endHour: number, homeTzId: string, direction: 'down' | 'up'): { path: string; strokePath: string; color: { r: number; g: number; b: number }; dayOffset: number }[] {
+	function getProgressArcs(tzId: string, startHour: number, endHour: number, homeTzId: string, direction: 'down' | 'up', activeDateIso?: string): { path: string; strokePath: string; color: { r: number; g: number; b: number }; dayOffset: number; isActive: boolean; dateIso: string }[] {
 		const offsetMinutes = getTimezoneOffset(tzId, new Date());
 		const range = endHour - startHour;
 		const height = 40;
@@ -559,7 +500,7 @@
 		}
 		dayBoundaries.push(endHour);
 
-		const arcs: { path: string; strokePath: string; color: { r: number; g: number; b: number }; dayOffset: number }[] = [];
+		const arcs: { path: string; strokePath: string; color: { r: number; g: number; b: number }; dayOffset: number; isActive: boolean; dateIso: string }[] = [];
 
 		for (let d = 0; d < dayBoundaries.length - 1; d++) {
 			const segStart = dayBoundaries[d];
@@ -570,27 +511,25 @@
 			const rowDateStr = new Intl.DateTimeFormat('en-CA', { timeZone: tzId, year: 'numeric', month: '2-digit', day: '2-digit' }).format(absDate);
 			const dayOffset = Math.round((new Date(rowDateStr).getTime() - new Date(homeTodayStr).getTime()) / 86400000);
 			const color = getDayColor(dayOffset);
+			const isActive = activeDateIso ? rowDateStr === activeDateIso : true;
 
-			const segLen = segEnd - segStart;
 			const xStart = ((segStart - startHour) / range) * 100;
 			const xEnd = ((segEnd - startHour) / range) * 100;
-
-			// Two points: start and end of segment, straight diagonal line
 			const yStart = direction === 'down' ? 0 : height;
 			const yEnd = direction === 'down' ? height : 0;
 
 			const strokeD = `M ${xStart} ${yStart} L ${xEnd} ${yEnd}`;
 			const fillD = `M ${xStart} ${yStart} L ${xEnd} ${yEnd} L ${xEnd} ${height} L ${xStart} ${height} Z`;
-			arcs.push({ path: fillD, strokePath: strokeD, color, dayOffset });
+			arcs.push({ path: fillD, strokePath: strokeD, color, dayOffset, isActive, dateIso: rowDateStr });
 		}
 		return arcs;
 	}
 
 	// Get the arcs for the current viz mode
-	function getVizArcs(tzId: string, startHour: number, endHour: number, homeTzId: string) {
-		if (vizMode === 'arc') return getDaylightArcs(tzId, startHour, endHour, homeTzId);
-		if (vizMode === 'progress-down') return getProgressArcs(tzId, startHour, endHour, homeTzId, 'down');
-		return getProgressArcs(tzId, startHour, endHour, homeTzId, 'up');
+	function getVizArcs(tzId: string, startHour: number, endHour: number, homeTzId: string, activeDateIso?: string) {
+		if (vizMode === 'arc') return getDaylightArcs(tzId, startHour, endHour, homeTzId, activeDateIso);
+		if (vizMode === 'progress-down') return getProgressArcs(tzId, startHour, endHour, homeTzId, 'down', activeDateIso);
+		return getProgressArcs(tzId, startHour, endHour, homeTzId, 'up', activeDateIso);
 	}
 
 	// Time labels along the X axis — in the reference (top row) timezone
@@ -949,19 +888,13 @@
 			<div class="flex flex-col relative">
 				{#each legTimelines as row, rowIdx}
 					{@const isHome = row.isHome}
-					{@const isGhost = row.isGhost}
-					{@const legIdx = isGhost ? -1 : allLegs.findIndex(l => l.id === row.id) - 1}
-					{@const timeDiff = !isHome && !isGhost ? getTimeDiff(legTimelines[0].tzId, row.tzId, new Date(row.date)) : null}
-					{@const realRowCount = allLegs.length}
-					{@const rowHeight = isGhost ? 10 : (realRowCount <= 5 ? 96 : Math.max(56, 480 / realRowCount))}
+					{@const legIdx = allLegs.findIndex(l => l.id === row.id) - 1}
+					{@const timeDiff = !isHome ? getTimeDiff(legTimelines[0].tzId, row.tzId, new Date(row.date)) : null}
+					{@const rowHeight = legTimelines.length <= 5 ? 96 : Math.max(56, 480 / legTimelines.length)}
 
 					<div class="flex items-stretch gap-0" style="height: {rowHeight}px">
 						<!-- Row label -->
 						<div class="group w-44 max-sm:hidden shrink-0 flex items-center justify-end pr-3 relative">
-							{#if isGhost}
-								<!-- Ghost day: just a faint date label -->
-								<span class="text-[9px] text-muted-foreground/30">{row.ghostLabel}</span>
-							{:else}
 								<!-- Reorder buttons (destinations only, not home) -->
 								{#if !isHome}
 									<div class="absolute left-0 top-1/2 -translate-y-1/2 flex flex-col opacity-0 group-hover:opacity-100 transition-opacity">
@@ -1009,80 +942,57 @@
 										{/if}
 									{/if}
 								</div>
-							{/if}
 						</div>
 
 						<!-- Horizontal strip -->
 						<div class="relative flex-1 overflow-hidden bg-card cells-area {rowIdx < legTimelines.length - 1 ? 'border-b border-border/30' : ''} {rowIdx === 0 ? 'rounded-t-lg' : ''} {rowIdx === legTimelines.length - 1 ? 'rounded-b-lg' : ''}"
 						>
-							{#if isGhost}
-								<!-- Ghost row: monochrome faint arc, no labels -->
-								<svg
-									class="absolute inset-0 w-full h-full pointer-events-none"
-									viewBox="0 0 100 40"
-									preserveAspectRatio="none"
-								>
-									{#each getVizArcs(row.tzId, timelineStart, timelineEnd, homeTz) as arc}
-										<path
-											d={arc.path}
-											fill="white"
-											fill-opacity="0.03"
-										/>
-										<path
-											d={arc.strokePath}
-											fill="none"
-											stroke="white"
-											stroke-opacity="0.1"
-											stroke-width="1"
-											vector-effect="non-scaling-stroke"
-										/>
+							<!-- Arcs: active day = solid + gradient, inactive = dashed + faded -->
+							<svg
+								class="absolute inset-0 w-full h-full pointer-events-none"
+								viewBox="0 0 100 40"
+								preserveAspectRatio="none"
+							>
+								<defs>
+									{#each getVizArcs(row.tzId, timelineStart, timelineEnd, homeTz, row.date) as arc, arcIdx}
+										<linearGradient id="day-grad-{rowIdx}-{arcIdx}" x1="0" y1="0" x2="0" y2="1">
+											<stop offset="0%" stop-color="rgb({arc.color.r}, {arc.color.g}, {arc.color.b})" stop-opacity={arc.isActive ? 0.15 : 0.04} />
+											<stop offset="100%" stop-color="rgb({arc.color.r}, {arc.color.g}, {arc.color.b})" stop-opacity="0.0" />
+										</linearGradient>
 									{/each}
-								</svg>
-							{:else}
-								<!-- Real row: colored arcs with gradient -->
-								<svg
-									class="absolute inset-0 w-full h-full pointer-events-none"
-									viewBox="0 0 100 40"
-									preserveAspectRatio="none"
-								>
-									<defs>
-										{#each getVizArcs(row.tzId, timelineStart, timelineEnd, homeTz) as arc, arcIdx}
-											<linearGradient id="day-grad-{rowIdx}-{arcIdx}" x1="0" y1="0" x2="0" y2="1">
-												<stop offset="0%" stop-color="rgb({arc.color.r}, {arc.color.g}, {arc.color.b})" stop-opacity="0.15" />
-												<stop offset="100%" stop-color="rgb({arc.color.r}, {arc.color.g}, {arc.color.b})" stop-opacity="0.0" />
-											</linearGradient>
-										{/each}
-									</defs>
-									{#each getVizArcs(row.tzId, timelineStart, timelineEnd, homeTz) as arc, arcIdx}
-										<path
-											d={arc.path}
-											fill="url(#day-grad-{rowIdx}-{arcIdx})"
-										/>
-										<path
-											d={arc.strokePath}
-											fill="none"
-											stroke="rgb({arc.color.r}, {arc.color.g}, {arc.color.b})"
-											stroke-opacity="0.4"
-											stroke-width="1"
-											vector-effect="non-scaling-stroke"
-										/>
-									{/each}
-								</svg>
-
-								<!-- Per-row midnight gridlines (colored) -->
-								{#each getMidnightPositions(row.tzId, timelineStart, timelineEnd, homeTz) as midnight}
-									<div
-										class="absolute inset-y-0 w-px"
-										style="left: {midnight.pct}%; background: rgba({midnight.color.r}, {midnight.color.g}, {midnight.color.b}, 0.3)"
-									></div>
-									<div
-										class="absolute top-1 text-[8px] font-medium"
-										style="left: {midnight.pct + 0.5}%; color: rgba({midnight.color.r}, {midnight.color.g}, {midnight.color.b}, 0.5)"
-									>
-										{midnight.label}
-									</div>
+								</defs>
+								{#each getVizArcs(row.tzId, timelineStart, timelineEnd, homeTz, row.date) as arc, arcIdx}
+									<!-- Filled area -->
+									<path
+										d={arc.path}
+										fill="url(#day-grad-{rowIdx}-{arcIdx})"
+									/>
+									<!-- Stroke: solid for active, dashed for inactive -->
+									<path
+										d={arc.strokePath}
+										fill="none"
+										stroke="rgb({arc.color.r}, {arc.color.g}, {arc.color.b})"
+										stroke-opacity={arc.isActive ? 0.5 : 0.15}
+										stroke-width="1"
+										stroke-dasharray={arc.isActive ? 'none' : '3,3'}
+										vector-effect="non-scaling-stroke"
+									/>
 								{/each}
-							{/if}
+							</svg>
+
+							<!-- Per-row midnight gridlines (colored) -->
+							{#each getMidnightPositions(row.tzId, timelineStart, timelineEnd, homeTz) as midnight}
+								<div
+									class="absolute inset-y-0 w-px"
+									style="left: {midnight.pct}%; background: rgba({midnight.color.r}, {midnight.color.g}, {midnight.color.b}, 0.3)"
+								></div>
+								<div
+									class="absolute top-1 text-[8px] font-medium"
+									style="left: {midnight.pct + 0.5}%; color: rgba({midnight.color.r}, {midnight.color.g}, {midnight.color.b}, 0.5)"
+								>
+									{midnight.label}
+								</div>
+							{/each}
 
 							<!-- Now line (blue, vertical) -->
 							{#if nowInRange}
