@@ -12,7 +12,7 @@
 		type TimezoneInfo,
 		type SearchResult,
 	} from '$lib/timezones';
-	import { X, Search, Globe, Plane, ChevronRight, MapPin, Calendar, Plus, LocateFixed, Clock } from '@lucide/svelte';
+	import { X, Search, Globe, Plane, ChevronRight, ChevronUp, ChevronDown, MapPin, Calendar, Plus, LocateFixed, Clock } from '@lucide/svelte';
 
 	// --- Types ---
 	interface Leg {
@@ -63,8 +63,8 @@
 
 	let totalHours = TIMELINE_HOURS;
 
-	// For each leg, compute the offset and local time info
-	let legTimelines = $derived(sortedLegs.map((leg, i) => {
+	// For each leg, compute the offset and local time info (uses legs order, not date-sorted)
+	let legTimelines = $derived(legs.map((leg, i) => {
 		const offsetMin = getTimezoneOffset(leg.tzId, new Date(leg.date));
 		const abbr = getTimezoneAbbr(leg.tzId, new Date(leg.date));
 		const offsetStr = formatOffset(offsetMin);
@@ -73,10 +73,12 @@
 		const legDate = new Date(leg.date);
 		const arrivalHour = (legDate.getTime() - tripSpan.startDate.getTime()) / 3600000;
 
-		// Departure: next leg's arrival or end of timeline
-		const nextLeg = sortedLegs[i + 1];
-		const departureHour = nextLeg
-			? (new Date(nextLeg.date).getTime() - tripSpan.startDate.getTime()) / 3600000
+		// Departure: find next leg by date order
+		const datesSorted = [...legs].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+		const myDateIdx = datesSorted.findIndex(l => l.id === leg.id);
+		const nextByDate = datesSorted[myDateIdx + 1];
+		const departureHour = nextByDate
+			? (new Date(nextByDate.date).getTime() - tripSpan.startDate.getTime()) / 3600000
 			: arrivalHour + 24;
 
 		return {
@@ -176,11 +178,11 @@
 		} else {
 			// Add new leg
 			const defaultDate = date || (() => {
-				if (sortedLegs.length === 0) {
+				if (legs.length === 0) {
 					return new Date().toISOString().split('T')[0];
 				}
 				// Default to last leg's date + 2 days
-				const last = new Date(sortedLegs[sortedLegs.length - 1].date);
+				const last = new Date(legs[legs.length - 1].date);
 				last.setDate(last.getDate() + 2);
 				return last.toISOString().split('T')[0];
 			})();
@@ -262,6 +264,50 @@
 				query = '';
 			}
 		}
+	}
+
+	// --- Geolocation ---
+	let locatingCity = $state(false);
+
+	async function handlePinpoint() {
+		if (!navigator.geolocation) return;
+		locatingCity = true;
+		navigator.geolocation.getCurrentPosition(async (pos) => {
+			try {
+				const res = await fetch(`https://nominatim.openstreetmap.org/reverse?lat=${pos.coords.latitude}&lon=${pos.coords.longitude}&format=json&zoom=10`);
+				const data = await res.json();
+				const city = data.address?.city || data.address?.town || data.address?.village;
+				if (city) {
+					const localTz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+					// Add as first leg if no legs, or update first leg
+					const defaultDate = new Date().toISOString().split('T')[0];
+					if (legs.length === 0) {
+						legs = [{ id: nextLegId++, city, tzId: localTz, date: defaultDate }];
+					} else {
+						// Check if local tz already exists
+						const existing = legs.find(l => l.tzId === localTz);
+						if (existing) {
+							legs = legs.map(l => l.id === existing.id ? { ...l, city } : l);
+						} else {
+							legs = [{ id: nextLegId++, city, tzId: localTz, date: defaultDate }, ...legs];
+						}
+					}
+					syncUrl();
+				}
+			} catch {} finally {
+				locatingCity = false;
+			}
+		}, () => { locatingCity = false; }, { timeout: 5000 });
+	}
+
+	// --- Reorder ---
+	function moveLeg(index: number, direction: -1 | 1) {
+		const copy = [...legs];
+		const newIndex = index + direction;
+		if (newIndex < 0 || newIndex >= copy.length) return;
+		[copy[index], copy[newIndex]] = [copy[newIndex], copy[index]];
+		legs = copy;
+		syncUrl();
 	}
 
 	// --- URL sync ---
@@ -465,6 +511,15 @@
 							<X class="h-3 w-3" />
 						</button>
 					{/if}
+					<button
+						type="button"
+						onclick={handlePinpoint}
+						disabled={locatingCity}
+						title="Detect my location"
+						class="shrink-0 p-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-accent transition-colors disabled:opacity-50"
+					>
+						<LocateFixed class="h-4 w-4 {locatingCity ? 'animate-pulse' : ''}" />
+					</button>
 				</div>
 
 				{#if showDropdown}
@@ -507,9 +562,9 @@
 		</div>
 
 		<!-- Itinerary chips -->
-		{#if sortedLegs.length > 0}
+		{#if legs.length > 0}
 			<div class="flex items-center gap-1.5 mt-5 flex-wrap justify-center max-w-4xl w-full">
-				{#each sortedLegs as leg, i}
+				{#each legs as leg, i}
 					{#if i > 0}
 						<ChevronRight class="h-3.5 w-3.5 text-muted-foreground/30 shrink-0 mx-0.5" />
 					{/if}
@@ -545,15 +600,15 @@
 	</div>
 
 	<!-- Timeline visualization — horizontal: time on X (left→right), cities as rows on Y -->
-	{#if sortedLegs.length >= 2}
+	{#if legs.length >= 2}
 		{@const timelineStart = 0}
 		{@const timelineEnd = TIMELINE_HOURS}
 		{@const timelineRange = TIMELINE_HOURS}
 		{@const timeLabels = getTimeLabels(timelineStart, timelineEnd)}
 		{@const nowPct = ((nowHourFromStart - timelineStart) / timelineRange) * 100}
 		{@const nowInRange = nowPct >= 0 && nowPct <= 100}
-		{@const homeTz = sortedLegs[0].tzId}
-		{@const allRows = [...legTimelines, { id: -1, city: 'Body Clock', tzId: homeTz, date: sortedLegs[0].date, offsetMin: getTimezoneOffset(homeTz, new Date(sortedLegs[0].date)), abbr: getTimezoneAbbr(homeTz, new Date(sortedLegs[0].date)), offsetStr: formatOffset(getTimezoneOffset(homeTz, new Date(sortedLegs[0].date))), arrivalHour: legTimelines[0].arrivalHour, departureHour: legTimelines[legTimelines.length - 1].departureHour, isBodyClock: true }]}
+		{@const homeTz = legs[0].tzId}
+		{@const allRows = [...legTimelines, { id: -1, city: 'Body Clock', tzId: homeTz, date: legs[0].date, offsetMin: getTimezoneOffset(homeTz, new Date(legs[0].date)), abbr: getTimezoneAbbr(homeTz, new Date(legs[0].date)), offsetStr: formatOffset(getTimezoneOffset(homeTz, new Date(legs[0].date))), arrivalHour: legTimelines[0].arrivalHour, departureHour: legTimelines[legTimelines.length - 1].departureHour, isBodyClock: true }]}
 
 		<div class="flex-1 flex flex-col px-4 max-sm:px-2 pb-2 max-w-6xl mx-auto w-full min-h-0">
 			<!-- X-axis: time labels (top) -->
@@ -591,21 +646,46 @@
 
 					<div class="flex items-stretch gap-0 flex-1 min-h-0">
 						<!-- Row label -->
-						<div class="w-44 max-sm:hidden shrink-0 flex flex-col justify-center pr-3 text-right">
+						<div class="group w-44 max-sm:hidden shrink-0 flex items-center justify-end pr-3 relative">
 							{#if isBodyClock}
-								<div class="text-xs font-medium text-amber-500/60 flex items-center justify-end gap-1">
-									<Clock class="h-3 w-3" />
-									Body Clock
+								<div class="text-right">
+									<div class="text-xs font-medium text-amber-500/60 flex items-center justify-end gap-1">
+										<Clock class="h-3 w-3" />
+										Body Clock
+									</div>
+									<div class="text-[10px] text-muted-foreground/50">{legs[0].city} time</div>
 								</div>
-								<div class="text-[10px] text-muted-foreground/50">{sortedLegs[0].city} time</div>
 							{:else}
-								<div class="font-medium text-sm text-secondary-foreground truncate">{row.city}</div>
-								<div class="text-[10px] text-muted-foreground/50">
-									{row.abbr} · {row.offsetStr}
+								<!-- Reorder buttons -->
+								<div class="absolute left-0 top-1/2 -translate-y-1/2 flex flex-col opacity-0 group-hover:opacity-100 transition-opacity">
+									{#if rowIdx > 0}
+										<button
+											type="button"
+											onclick={() => moveLeg(rowIdx, -1)}
+											class="p-0.5 rounded hover:bg-accent text-muted-foreground hover:text-foreground transition-colors"
+										>
+											<ChevronUp class="h-3 w-3" />
+										</button>
+									{/if}
+									{#if rowIdx < legs.length - 1}
+										<button
+											type="button"
+											onclick={() => moveLeg(rowIdx, 1)}
+											class="p-0.5 rounded hover:bg-accent text-muted-foreground hover:text-foreground transition-colors"
+										>
+											<ChevronDown class="h-3 w-3" />
+										</button>
+									{/if}
 								</div>
-								{#if timeDiff}
-									<div class="text-[9px] text-muted-foreground/40">{timeDiff}</div>
-								{/if}
+								<div class="text-right">
+									<div class="font-medium text-sm text-secondary-foreground truncate">{row.city}</div>
+									<div class="text-[10px] text-muted-foreground/50">
+										{row.abbr} · {row.offsetStr}
+									</div>
+									{#if timeDiff}
+										<div class="text-[9px] text-muted-foreground/40">{timeDiff}</div>
+									{/if}
+								</div>
 							{/if}
 						</div>
 
@@ -703,7 +783,7 @@
 			</div>
 		</div>
 
-	{:else if sortedLegs.length === 1}
+	{:else if legs.length === 1}
 		<div class="flex-1 flex flex-col items-center justify-center text-muted-foreground/50 gap-2 pb-20">
 			<Plane class="h-8 w-8 mb-2" />
 			<p class="text-sm">Add your next destination to see the timeline</p>
