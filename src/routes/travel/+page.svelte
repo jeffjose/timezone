@@ -863,6 +863,7 @@
 		</div>
 
 	<!-- Timeline visualization — horizontal: time on X (left→right), cities as rows on Y -->
+	{#if allLegs.length >= 1}
 		{@const homeTz = homeLeg.tzId}
 		{@const timelineStart = centerHour - TIMELINE_HOURS / 2}
 		{@const timelineEnd = centerHour + TIMELINE_HOURS / 2}
@@ -1019,5 +1020,6 @@
 				{/if}
 			</div>
 		</div>
+	{/if}
 
-	</div>
+</div>
