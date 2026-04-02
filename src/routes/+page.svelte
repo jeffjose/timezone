@@ -1830,14 +1830,23 @@ function handleMarkerLineClick(e: MouseEvent, markerId: number) {
 														{/if}
 													{/each}
 												</clipPath>
+												<!-- Dashed stroke for extended hours -->
+												<path
+													d={(arcMode === 'progress' ? cachedProgressPaths.get(entry.id) : cachedDaylightPaths.get(entry.id)) ?? ''}
+													fill="none"
+													stroke="rgba(255,255,255,0.20)"
+													stroke-width="1"
+													stroke-dasharray="3 3"
+													vector-effect="non-scaling-stroke"
+													clip-path="url(#ext-clip-{rowIndex})"
+												/>
+												<!-- Subtle fill for extended hours -->
 												<path
 													d={(arcMode === 'progress' ? cachedProgressPaths.get(entry.id) : cachedDaylightPaths.get(entry.id)) ?? ''}
 													fill="url(#daylight-{rowIndex})"
-													stroke="rgba(255,255,255,0.10)"
-													stroke-width="0.4"
-													vector-effect="non-scaling-stroke"
+													stroke="none"
 													clip-path="url(#ext-clip-{rowIndex})"
-													opacity="0.6"
+													opacity="0.4"
 												/>
 											{:else}
 												<path
