@@ -727,14 +727,17 @@
 			const continuousLocalHour = (utcHour * 60 + offsetMinutes) / 60;
 			let val: number;
 			if (workMode) {
-				// Single hump per day within the working range
-				// Find hour-of-day without discontinuity
+				// Three humps: 7a-9a, 9a-5p, 5p-11p
 				const hourOfDay = ((continuousLocalHour % 24) + 24) % 24;
-				const hoursIntoRange = hourOfDay - rangeStart;
-				if (hoursIntoRange >= 0 && hoursIntoRange <= rangeLen) {
-					val = Math.sin((hoursIntoRange / rangeLen) * Math.PI);
-				} else {
-					val = 0;
+				const ranges = [{ start: 7, end: 9 }, { start: 9, end: 17 }, { start: 17, end: 23 }];
+				val = 0;
+				for (const r of ranges) {
+					const len = r.end - r.start;
+					const into = hourOfDay - r.start;
+					if (into >= 0 && into <= len) {
+						val = Math.sin((into / len) * Math.PI);
+						break;
+					}
 				}
 			} else {
 				// Full day cosine peaking at 1pm — use raw hour, cosine is naturally periodic
