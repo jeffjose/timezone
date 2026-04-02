@@ -379,9 +379,9 @@
 		return `${sign}${diff}h`;
 	}
 
-	// Day colors — blue for today, cycling for other days (matching main app)
+	// Day colors — assigned by calendar date (day-of-month), not relative to today
 	const DAY_COLORS = [
-		{ r: 59, g: 130, b: 246 },   // blue-500 (today)
+		{ r: 59, g: 130, b: 246 },   // blue-500
 		{ r: 168, g: 85, b: 247 },   // purple-500
 		{ r: 20, g: 184, b: 166 },   // teal-500
 		{ r: 245, g: 158, b: 11 },   // amber-500
@@ -390,12 +390,10 @@
 		{ r: 236, g: 72, b: 153 },   // pink-500
 	];
 
+	// Color by calendar date: today's date gets index 0 (blue), tomorrow index 1 (purple), etc.
 	function getDayColor(dayOffset: number): { r: number; g: number; b: number } {
-		if (dayOffset === 0) return DAY_COLORS[0]; // today = blue
-		// Match main app: dayOffset 1 → purple (idx 0), dayOffset -1 → pink (last)
-		const others = DAY_COLORS.length - 1; // 6 non-blue colors
-		const idx = dayOffset > 0 ? dayOffset - 1 : others + dayOffset;
-		return DAY_COLORS[((idx % others) + others) % others + 1];
+		const idx = ((dayOffset % DAY_COLORS.length) + DAY_COLORS.length) % DAY_COLORS.length;
+		return DAY_COLORS[idx];
 	}
 
 	// Per-day daylight arc segments — returns one path + color per day
