@@ -1798,7 +1798,10 @@ function handleMarkerLineClick(e: MouseEvent, markerId: number) {
 													vector-effect="non-scaling-stroke"
 													clip-path="url(#work-clip-{rowIndex})"
 												/>
-												<!-- Extended hours (7a-9a, 5p-11p): dashed version -->
+												<!-- Extended hours (7a-9a, 5p-11p): hatched version -->
+												<pattern id="hatch-{rowIndex}" width="4" height="4" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
+													<line x1="0" y1="0" x2="0" y2="4" stroke="rgba(255,255,255,0.10)" stroke-width="2" />
+												</pattern>
 												<clipPath id="ext-clip-{rowIndex}">
 													{#each visibleRenderHours as hour}
 														{@const actualH = getTzHourValue(entry.id, hour)}
@@ -1809,13 +1812,11 @@ function handleMarkerLineClick(e: MouseEvent, markerId: number) {
 												</clipPath>
 												<path
 													d={(arcMode === 'progress' ? cachedProgressPaths.get(entry.id) : cachedDaylightPaths.get(entry.id)) ?? ''}
-													fill="url(#daylight-{rowIndex})"
-													stroke="rgba(255,255,255,0.15)"
+													fill="url(#hatch-{rowIndex})"
+													stroke="rgba(255,255,255,0.08)"
 													stroke-width="0.4"
-													stroke-dasharray="1 0.8"
 													vector-effect="non-scaling-stroke"
 													clip-path="url(#ext-clip-{rowIndex})"
-													opacity="0.6"
 												/>
 											{:else}
 												<path
