@@ -721,9 +721,21 @@
 			const actualHour = getTzHourValue(tz, Math.floor(hour));
 			const frac = hour - Math.floor(hour);
 			const continuousHour = actualHour + frac;
-			// Cosine peaks at center of range, period = rangeLen
-			const radians = ((continuousHour - peakHour) / rangeLen) * Math.PI * 2;
-			const val = Math.max(0, (Math.cos(radians) + 1) / 2);
+			let val: number;
+			if (workMode) {
+				// Single hump from rangeStart to rangeStart+rangeLen, zero outside
+				const hoursIntoRange = ((continuousHour - rangeStart + 24) % 24);
+				if (hoursIntoRange >= 0 && hoursIntoRange <= rangeLen) {
+					// Half-cosine: 0 at edges, 1 at center
+					val = Math.sin((hoursIntoRange / rangeLen) * Math.PI);
+				} else {
+					val = 0;
+				}
+			} else {
+				// Full day cosine peaking at 1pm
+				const radians = ((continuousHour - peakHour) / rangeLen) * Math.PI * 2;
+				val = (Math.cos(radians) + 1) / 2;
+			}
 			const x = (hourIndex / TOTAL_CELLS) * 100;
 			const y = height - val * maxArc;
 			points.push({ x, y });
