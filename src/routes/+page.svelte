@@ -1713,19 +1713,48 @@ function handleMarkerLineClick(e: MouseEvent, markerId: number) {
 											viewBox="0 0 100 40"
 											preserveAspectRatio="none"
 										>
-											<path
-												d={(arcMode === 'progress' ? cachedProgressPaths.get(entry.id) : cachedDaylightPaths.get(entry.id)) ?? ''}
-												fill="url(#daylight-{rowIndex})"
-												stroke="rgba(255,255,255,0.15)"
-												stroke-width="0.4"
-												vector-effect="non-scaling-stroke"
-											/>
 											<defs>
 												<linearGradient id="daylight-{rowIndex}" x1="0" y1="0" x2="0" y2="1">
 													<stop offset="0%" stop-color="white" stop-opacity="0.12" />
 													<stop offset="100%" stop-color="white" stop-opacity="0.02" />
 												</linearGradient>
 											</defs>
+											{#if showWorkingHours}
+												<!-- Dimmed version for non-working hours -->
+												<path
+													d={(arcMode === 'progress' ? cachedProgressPaths.get(entry.id) : cachedDaylightPaths.get(entry.id)) ?? ''}
+													fill="url(#daylight-{rowIndex})"
+													stroke="rgba(255,255,255,0.05)"
+													stroke-width="0.4"
+													vector-effect="non-scaling-stroke"
+													opacity="0.3"
+												/>
+												<!-- Bright version clipped to working hours -->
+												<clipPath id="work-clip-{rowIndex}">
+													{#each renderHours as hour}
+														{@const actualH = getTzHourValue(entry.id, hour)}
+														{#if actualH >= 9 && actualH < 17}
+															<rect x={((hour - renderStart) / TOTAL_CELLS) * 100} y="0" width={100 / TOTAL_CELLS} height="40" />
+														{/if}
+													{/each}
+												</clipPath>
+												<path
+													d={(arcMode === 'progress' ? cachedProgressPaths.get(entry.id) : cachedDaylightPaths.get(entry.id)) ?? ''}
+													fill="url(#daylight-{rowIndex})"
+													stroke="rgba(255,255,255,0.15)"
+													stroke-width="0.4"
+													vector-effect="non-scaling-stroke"
+													clip-path="url(#work-clip-{rowIndex})"
+												/>
+											{:else}
+												<path
+													d={(arcMode === 'progress' ? cachedProgressPaths.get(entry.id) : cachedDaylightPaths.get(entry.id)) ?? ''}
+													fill="url(#daylight-{rowIndex})"
+													stroke="rgba(255,255,255,0.15)"
+													stroke-width="0.4"
+													vector-effect="non-scaling-stroke"
+												/>
+											{/if}
 										</svg>
 										{#each renderHours as hour (hour)}
 											{@const tzHour = getHourForTimezone(entry.id, hour)}
