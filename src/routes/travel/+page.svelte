@@ -12,7 +12,7 @@
 		type TimezoneInfo,
 		type SearchResult,
 	} from '$lib/timezones';
-	import { X, Search, Globe, Plane, ChevronRight, ChevronUp, ChevronDown, MapPin, Calendar, Plus, LocateFixed } from '@lucide/svelte';
+	import { X, Search, Globe, Plane, ChevronRight, ChevronUp, ChevronDown, MapPin, Calendar, Plus, LocateFixed, Sunset, TrendingUp, TrendingDown } from '@lucide/svelte';
 
 	// --- Types ---
 	interface Leg {
@@ -45,6 +45,7 @@
 	let now = $state(new Date());
 	let ready = $state(false);
 	let hoverPct: number | null = $state(null);
+	let vizMode: 'arc' | 'progress-down' | 'progress-up' = $state('arc');
 
 	// Pan state — centerHour is hours from tripSpan.startDate at center of viewport
 	const initNow = new Date();
@@ -466,6 +467,69 @@
 		return arcs;
 	}
 
+	// Progress path — sawtooth per day, split into per-day segments with colors
+	// direction: 'down' = 100→0 (top to bottom), 'up' = 0→100 (bottom to top)
+	function getProgressArcs(tzId: string, startHour: number, endHour: number, homeTzId: string, direction: 'down' | 'up'): { path: string; strokePath: string; color: { r: number; g: number; b: number }; dayOffset: number }[] {
+		const offsetMinutes = getTimezoneOffset(tzId, new Date());
+		const range = endHour - startHour;
+		const height = 40;
+		const sampleRate = 2;
+		const homeTodayStr = new Intl.DateTimeFormat('en-CA', { timeZone: homeTzId, year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
+
+		// Split at row's own midnight
+		const startLocalHour = (startHour * 60 + offsetMinutes) / 60;
+		const firstMidnight = Math.ceil(startLocalHour / 24) * 24;
+		const firstMidnightUtc = (firstMidnight * 60 - offsetMinutes) / 60;
+
+		const dayBoundaries: number[] = [startHour];
+		for (let utcH = firstMidnightUtc; utcH < endHour; utcH += 24) {
+			if (utcH > startHour) dayBoundaries.push(utcH);
+		}
+		dayBoundaries.push(endHour);
+
+		const arcs: { path: string; strokePath: string; color: { r: number; g: number; b: number }; dayOffset: number }[] = [];
+
+		for (let d = 0; d < dayBoundaries.length - 1; d++) {
+			const segStart = dayBoundaries[d];
+			const segEnd = dayBoundaries[d + 1];
+
+			const midUtcHour = (segStart + segEnd) / 2;
+			const absDate = new Date(tripSpan.startDate.getTime() + midUtcHour * 3600000);
+			const rowDateStr = new Intl.DateTimeFormat('en-CA', { timeZone: tzId, year: 'numeric', month: '2-digit', day: '2-digit' }).format(absDate);
+			const dayOffset = Math.round((new Date(rowDateStr).getTime() - new Date(homeTodayStr).getTime()) / 86400000);
+			const color = getDayColor(dayOffset);
+
+			const points: { x: number; y: number }[] = [];
+			const samples = Math.ceil((segEnd - segStart) * sampleRate);
+			for (let i = 0; i <= samples; i++) {
+				const utcHour = segStart + (i / samples) * (segEnd - segStart);
+				const localMinutes = utcHour * 60 + offsetMinutes;
+				const localHour = (((localMinutes / 60) % 24) + 24) % 24;
+				const progress = localHour / 24; // 0 at midnight, 1 at next midnight
+				const x = ((utcHour - startHour) / range) * 100;
+				const y = direction === 'down'
+					? progress * height       // top(0) → bottom(1)
+					: (1 - progress) * height; // bottom(1) → top(0)
+				points.push({ x, y });
+			}
+
+			let strokeD = `M ${points[0].x} ${points[0].y}`;
+			for (let i = 1; i < points.length; i++) {
+				strokeD += ` L ${points[i].x} ${points[i].y}`;
+			}
+			const fillD = strokeD + ` L ${points[points.length - 1].x} ${height} L ${points[0].x} ${height} Z`;
+			arcs.push({ path: fillD, strokePath: strokeD, color, dayOffset });
+		}
+		return arcs;
+	}
+
+	// Get the arcs for the current viz mode
+	function getVizArcs(tzId: string, startHour: number, endHour: number, homeTzId: string) {
+		if (vizMode === 'arc') return getDaylightArcs(tzId, startHour, endHour, homeTzId);
+		if (vizMode === 'progress-down') return getProgressArcs(tzId, startHour, endHour, homeTzId, 'down');
+		return getProgressArcs(tzId, startHour, endHour, homeTzId, 'up');
+	}
+
 	// Time labels along the X axis — in the reference (top row) timezone
 	function getTimeLabels(startHour: number, endHour: number, refTzId: string): { hour: number; label: string; dateLabel: string | null }[] {
 		const labels: { hour: number; label: string; dateLabel: string | null }[] = [];
@@ -729,6 +793,49 @@
 		{/if}
 	</div>
 
+	<!-- Viz mode toggle -->
+	{#if legs.length >= 1}
+		<div class="flex justify-center mb-3">
+			<div class="flex items-center rounded-md border border-border overflow-hidden">
+				<button
+					type="button"
+					onclick={() => vizMode = 'arc'}
+					class="px-2 py-1 text-[11px] font-medium transition-colors flex items-center gap-1
+						{vizMode === 'arc'
+							? 'bg-accent text-foreground'
+							: 'text-muted-foreground hover:text-foreground hover:bg-accent/50'}"
+				>
+					<Sunset class="h-3 w-3" />
+					Arc
+				</button>
+				<div class="w-px h-4 bg-border"></div>
+				<button
+					type="button"
+					onclick={() => vizMode = 'progress-down'}
+					class="px-2 py-1 text-[11px] font-medium transition-colors flex items-center gap-1
+						{vizMode === 'progress-down'
+							? 'bg-accent text-foreground'
+							: 'text-muted-foreground hover:text-foreground hover:bg-accent/50'}"
+				>
+					<TrendingDown class="h-3 w-3" />
+					Progress
+				</button>
+				<div class="w-px h-4 bg-border"></div>
+				<button
+					type="button"
+					onclick={() => vizMode = 'progress-up'}
+					class="px-2 py-1 text-[11px] font-medium transition-colors flex items-center gap-1
+						{vizMode === 'progress-up'
+							? 'bg-accent text-foreground'
+							: 'text-muted-foreground hover:text-foreground hover:bg-accent/50'}"
+				>
+					<TrendingUp class="h-3 w-3" />
+					Progress
+				</button>
+			</div>
+		</div>
+	{/if}
+
 	<!-- Timeline visualization — horizontal: time on X (left→right), cities as rows on Y -->
 	{#if legs.length >= 1}
 		{@const homeTz = legs[0].tzId}
@@ -819,14 +926,14 @@
 								preserveAspectRatio="none"
 							>
 								<defs>
-									{#each getDaylightArcs(row.tzId, timelineStart, timelineEnd, homeTz) as arc, arcIdx}
+									{#each getVizArcs(row.tzId, timelineStart, timelineEnd, homeTz) as arc, arcIdx}
 										<linearGradient id="day-grad-{rowIdx}-{arcIdx}" x1="0" y1="0" x2="0" y2="1">
 											<stop offset="0%" stop-color="rgb({arc.color.r}, {arc.color.g}, {arc.color.b})" stop-opacity="0.15" />
 											<stop offset="100%" stop-color="rgb({arc.color.r}, {arc.color.g}, {arc.color.b})" stop-opacity="0.0" />
 										</linearGradient>
 									{/each}
 								</defs>
-								{#each getDaylightArcs(row.tzId, timelineStart, timelineEnd, homeTz) as arc, arcIdx}
+								{#each getVizArcs(row.tzId, timelineStart, timelineEnd, homeTz) as arc, arcIdx}
 									<!-- Filled area -->
 									<path
 										d={arc.path}
