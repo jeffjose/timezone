@@ -616,13 +616,13 @@
 
 	<!-- Timeline visualization — horizontal: time on X (left→right), cities as rows on Y -->
 	{#if legs.length >= 2}
+		{@const homeTz = legs[0].tzId}
 		{@const timelineStart = 0}
 		{@const timelineEnd = TIMELINE_HOURS}
 		{@const timelineRange = TIMELINE_HOURS}
 		{@const timeLabels = getTimeLabels(timelineStart, timelineEnd, homeTz)}
 		{@const nowPct = ((nowHourFromStart - timelineStart) / timelineRange) * 100}
 		{@const nowInRange = nowPct >= 0 && nowPct <= 100}
-		{@const homeTz = legs[0].tzId}
 		{@const allRows = [...legTimelines, { id: -1, city: 'Body Clock', tzId: homeTz, date: legs[0].date, offsetMin: getTimezoneOffset(homeTz, new Date(legs[0].date)), abbr: getTimezoneAbbr(homeTz, new Date(legs[0].date)), offsetStr: formatOffset(getTimezoneOffset(homeTz, new Date(legs[0].date))), arrivalHour: legTimelines[0].arrivalHour, departureHour: legTimelines[legTimelines.length - 1].departureHour, isBodyClock: true }]}
 
 		<div class="flex-1 flex flex-col px-4 max-sm:px-2 pb-2 max-w-6xl mx-auto w-full min-h-0">
