@@ -723,7 +723,8 @@
 									fill="none"
 									stroke="white"
 									stroke-opacity="0.2"
-									stroke-width="0.5"
+									stroke-width="1"
+									vector-effect="non-scaling-stroke"
 								/>
 							</svg>
 
