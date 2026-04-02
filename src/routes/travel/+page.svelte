@@ -27,6 +27,16 @@
 
 	// --- State ---
 	let allTimezones: TimezoneInfo[] = $state(getAllTimezones());
+
+	// Home: auto-detected, always first row, no date
+	const localTzId = Intl.DateTimeFormat().resolvedOptions().timeZone;
+	const localCityParts = localTzId.split('/');
+	let homeLeg: { city: string; tzId: string } = $state({
+		city: (localCityParts[localCityParts.length - 1] || localTzId).replace(/_/g, ' '),
+		tzId: localTzId,
+	});
+
+	// Destinations (not including home)
 	let legs: Leg[] = $state([]);
 	let nextLegId = 0;
 
@@ -94,22 +104,23 @@
 
 	let totalHours = TIMELINE_HOURS;
 
-	// For each leg, compute the offset and local time info (uses legs order, not date-sorted)
-	let legTimelines = $derived(legs.map((leg, i) => {
+	// All rows: home (always first) + destinations
+	let allLegs = $derived([
+		{ id: -1, city: homeLeg.city, tzId: homeLeg.tzId, date: new Date().toISOString().split('T')[0], isHome: true as const },
+		...legs.map(l => ({ ...l, isHome: false as const })),
+	]);
+
+	let legTimelines = $derived(allLegs.map((leg, i) => {
 		const offsetMin = getTimezoneOffset(leg.tzId, new Date(leg.date));
 		const abbr = getTimezoneAbbr(leg.tzId, new Date(leg.date));
 		const offsetStr = formatOffset(offsetMin);
 
-		// Arrival date as hours from trip start
 		const legDate = new Date(leg.date);
 		const arrivalHour = (legDate.getTime() - tripSpan.startDate.getTime()) / 3600000;
 
-		// Departure: find next leg by date order
-		const datesSorted = [...legs].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
-		const myDateIdx = datesSorted.findIndex(l => l.id === leg.id);
-		const nextByDate = datesSorted[myDateIdx + 1];
-		const departureHour = nextByDate
-			? (new Date(nextByDate.date).getTime() - tripSpan.startDate.getTime()) / 3600000
+		const nextLeg = allLegs[i + 1];
+		const departureHour = nextLeg
+			? (new Date(nextLeg.date).getTime() - tripSpan.startDate.getTime()) / 3600000
 			: arrivalHour + 24;
 
 		return {
@@ -207,12 +218,14 @@
 			editingLegId = null;
 			editingField = null;
 		} else {
-			// Add new leg
+			// Add new destination
 			const defaultDate = date || (() => {
 				if (legs.length === 0) {
-					return new Date().toISOString().split('T')[0];
+					// First destination: default to tomorrow
+					const d = new Date();
+					d.setDate(d.getDate() + 1);
+					return d.toISOString().split('T')[0];
 				}
-				// Default to last leg's date + 2 days
 				const last = new Date(legs[legs.length - 1].date);
 				last.setDate(last.getDate() + 2);
 				return last.toISOString().split('T')[0];
@@ -309,21 +322,7 @@
 				const data = await res.json();
 				const city = data.address?.city || data.address?.town || data.address?.village;
 				if (city) {
-					const localTz = Intl.DateTimeFormat().resolvedOptions().timeZone;
-					// Add as first leg if no legs, or update first leg
-					const defaultDate = new Date().toISOString().split('T')[0];
-					if (legs.length === 0) {
-						legs = [{ id: nextLegId++, city, tzId: localTz, date: defaultDate }];
-					} else {
-						// Check if local tz already exists
-						const existing = legs.find(l => l.tzId === localTz);
-						if (existing) {
-							legs = legs.map(l => l.id === existing.id ? { ...l, city } : l);
-						} else {
-							legs = [{ id: nextLegId++, city, tzId: localTz, date: defaultDate }, ...legs];
-						}
-					}
-					syncUrl();
+					homeLeg = { city, tzId: Intl.DateTimeFormat().resolvedOptions().timeZone };
 				}
 			} catch {} finally {
 				locatingCity = false;
@@ -657,6 +656,8 @@
 	onMount(() => {
 		loadFromUrl();
 		ready = true;
+		// Auto-detect city name for home
+		handlePinpoint();
 		const interval = setInterval(() => { now = new Date(); }, 60000);
 		return () => clearInterval(interval);
 	});
@@ -701,8 +702,8 @@
 						onfocus={() => (searchFocused = true)}
 						type="text"
 						placeholder={legs.length === 0
-							? 'Where are you going? Try "london apr 5"'
-							: 'Add next stop... e.g. "mumbai apr 10"'}
+							? 'Where are you going? e.g. "london apr 3"'
+							: 'Add next stop... e.g. "sfo apr 10"'}
 						class="flex-1 min-w-[120px] bg-transparent text-sm text-foreground placeholder:text-muted-foreground outline-none select-text"
 					/>
 					{#if query}
@@ -765,60 +766,62 @@
 		</div>
 
 		<!-- Itinerary chips -->
-		{#if legs.length > 0}
-			<div class="flex items-center gap-1 mt-5 flex-nowrap justify-center max-w-4xl w-full overflow-x-auto no-scrollbar">
-				{#each legs as leg, i}
-					{#if i > 0}
-						{@const prevDate = new Date(legs[i - 1].date + 'T12:00:00')}
-						{@const thisDate = new Date(leg.date + 'T12:00:00')}
-						{@const daysBetween = Math.round((thisDate.getTime() - prevDate.getTime()) / 86400000)}
-						<span class="shrink-0 flex items-center gap-0.5 text-[10px] text-muted-foreground/40 mx-0.5">
-							<span class="w-3 h-px bg-muted-foreground/20"></span>
-							{daysBetween}d
-							<span class="w-3 h-px bg-muted-foreground/20"></span>
-						</span>
-					{/if}
-					<div class="group inline-flex items-center rounded-md bg-secondary text-xs shrink-0 transition-all hover:bg-secondary/80">
-						<button
-							type="button"
-							onclick={() => editLegCity(leg.id)}
-							class="pl-2 pr-1 py-1 transition-colors rounded-l-md hover:bg-accent text-secondary-foreground"
-						>
-							{leg.city}
-						</button>
-						<Popover.Root bind:open={() => openPopoverId === leg.id, (v) => openPopoverId = v ? leg.id : null}>
-							<Popover.Trigger
-								class="px-1 py-1 text-muted-foreground hover:text-secondary-foreground hover:bg-accent transition-colors cursor-pointer"
-							>
-								{formatChipDate(leg.date)}
-							</Popover.Trigger>
-							<Popover.Content class="w-auto p-0" align="start">
-								<Calendar
-									value={isoToCalendarDate(leg.date)}
-									onValueChange={(v) => {
-										if (v) {
-											updateLegDate(leg.id, calendarDateToIso(v));
-											openPopoverId = null;
-										}
-									}}
-								/>
-							</Popover.Content>
-						</Popover.Root>
-						<button
-							type="button"
-							onclick={() => removeLeg(leg.id)}
-							class="px-1 py-1 rounded-r-md text-muted-foreground/30 hover:text-secondary-foreground hover:bg-accent transition-colors opacity-0 group-hover:opacity-100"
-						>
-							<X class="h-2.5 w-2.5" />
-						</button>
-					</div>
-				{/each}
+		<div class="flex items-center gap-1 mt-5 flex-nowrap justify-center max-w-4xl w-full overflow-x-auto no-scrollbar">
+			<!-- Home chip (always visible, pinned) -->
+			<div class="inline-flex items-center rounded-md bg-secondary text-xs shrink-0 px-2 py-1 gap-1.5">
+				<LocateFixed class="h-3 w-3 text-blue-400" />
+				<span class="text-secondary-foreground">{homeLeg.city}</span>
 			</div>
-		{/if}
+
+			{#each legs as leg, i}
+				<!-- Stay duration -->
+				{@const prevDate = i === 0 ? new Date().toISOString().split('T')[0] : legs[i - 1].date}
+				{@const daysBetween = Math.round((new Date(leg.date + 'T12:00:00').getTime() - new Date(prevDate + 'T12:00:00').getTime()) / 86400000)}
+				<span class="shrink-0 flex items-center gap-0.5 text-[10px] text-muted-foreground/40 mx-0.5">
+					<span class="w-3 h-px bg-muted-foreground/20"></span>
+					{daysBetween}d
+					<span class="w-3 h-px bg-muted-foreground/20"></span>
+				</span>
+
+				<div class="group inline-flex items-center rounded-md bg-secondary text-xs shrink-0 transition-all hover:bg-secondary/80">
+					<button
+						type="button"
+						onclick={() => editLegCity(leg.id)}
+						class="pl-2 pr-1 py-1 transition-colors rounded-l-md hover:bg-accent text-secondary-foreground"
+					>
+						{leg.city}
+					</button>
+					<Popover.Root bind:open={() => openPopoverId === leg.id, (v) => openPopoverId = v ? leg.id : null}>
+						<Popover.Trigger
+							class="px-1 py-1 text-muted-foreground hover:text-secondary-foreground hover:bg-accent transition-colors cursor-pointer"
+						>
+							{formatChipDate(leg.date)}
+						</Popover.Trigger>
+						<Popover.Content class="w-auto p-0" align="start">
+							<Calendar
+								value={isoToCalendarDate(leg.date)}
+								onValueChange={(v) => {
+									if (v) {
+										updateLegDate(leg.id, calendarDateToIso(v));
+										openPopoverId = null;
+									}
+								}}
+							/>
+						</Popover.Content>
+					</Popover.Root>
+					<button
+						type="button"
+						onclick={() => removeLeg(leg.id)}
+						class="px-1 py-1 rounded-r-md text-muted-foreground/30 hover:text-secondary-foreground hover:bg-accent transition-colors opacity-0 group-hover:opacity-100"
+					>
+						<X class="h-2.5 w-2.5" />
+					</button>
+				</div>
+			{/each}
+		</div>
 	</div>
 
 	<!-- Viz mode toggle -->
-	{#if legs.length >= 1}
 		<div class="flex justify-center mb-3">
 			<div class="flex items-center rounded-md border border-border overflow-hidden">
 				<button
@@ -858,11 +861,9 @@
 				</button>
 			</div>
 		</div>
-	{/if}
 
 	<!-- Timeline visualization — horizontal: time on X (left→right), cities as rows on Y -->
-	{#if legs.length >= 1}
-		{@const homeTz = legs[0].tzId}
+		{@const homeTz = homeLeg.tzId}
 		{@const timelineStart = centerHour - TIMELINE_HOURS / 2}
 		{@const timelineEnd = centerHour + TIMELINE_HOURS / 2}
 		{@const timelineRange = TIMELINE_HOURS}
@@ -891,34 +892,41 @@
 			<!-- Rows + overlays -->
 			<div class="flex flex-col relative">
 				{#each legTimelines as row, rowIdx}
+					{@const isHome = 'isHome' in row && row.isHome}
+					{@const legIdx = rowIdx - 1}
 					{@const timeDiff = rowIdx > 0 ? getTimeDiff(legTimelines[0].tzId, row.tzId, new Date(row.date)) : null}
 
 					<div class="flex items-stretch gap-0" style="height: {legTimelines.length <= 5 ? 96 : Math.max(56, 480 / legTimelines.length)}px">
 						<!-- Row label -->
 						<div class="group w-44 max-sm:hidden shrink-0 flex items-center justify-end pr-3 relative">
-							<!-- Reorder buttons -->
-							<div class="absolute left-0 top-1/2 -translate-y-1/2 flex flex-col opacity-0 group-hover:opacity-100 transition-opacity">
-								{#if rowIdx > 0}
-									<button
-										type="button"
-										onclick={() => moveLeg(rowIdx, -1)}
-										class="p-0.5 rounded hover:bg-accent text-muted-foreground hover:text-foreground transition-colors"
-									>
-										<ChevronUp class="h-3 w-3" />
-									</button>
-								{/if}
-								{#if rowIdx < legs.length - 1}
-									<button
-										type="button"
-										onclick={() => moveLeg(rowIdx, 1)}
-										class="p-0.5 rounded hover:bg-accent text-muted-foreground hover:text-foreground transition-colors"
-									>
-										<ChevronDown class="h-3 w-3" />
-									</button>
-								{/if}
-							</div>
+							<!-- Reorder buttons (destinations only, not home) -->
+							{#if !isHome}
+								<div class="absolute left-0 top-1/2 -translate-y-1/2 flex flex-col opacity-0 group-hover:opacity-100 transition-opacity">
+									{#if legIdx > 0}
+										<button
+											type="button"
+											onclick={() => moveLeg(legIdx, -1)}
+											class="p-0.5 rounded hover:bg-accent text-muted-foreground hover:text-foreground transition-colors"
+										>
+											<ChevronUp class="h-3 w-3" />
+										</button>
+									{/if}
+									{#if legIdx < legs.length - 1}
+										<button
+											type="button"
+											onclick={() => moveLeg(legIdx, 1)}
+											class="p-0.5 rounded hover:bg-accent text-muted-foreground hover:text-foreground transition-colors"
+										>
+											<ChevronDown class="h-3 w-3" />
+										</button>
+									{/if}
+								</div>
+							{/if}
 							<div class="text-right">
 								<div class="flex items-center gap-1.5 justify-end">
+									{#if isHome}
+										<LocateFixed class="h-3 w-3 text-blue-400" />
+									{/if}
 									<span class="font-medium text-sm leading-tight truncate">{row.city}</span>
 								</div>
 								{#if hoverPct !== null}
@@ -1012,11 +1020,4 @@
 			</div>
 		</div>
 
-	{:else}
-		<div class="flex-1 flex flex-col items-center justify-center text-muted-foreground/50 gap-2 pb-20">
-			<Globe class="h-8 w-8 mb-2" />
-			<p class="text-sm">Plan your trip across timezones</p>
-			<p class="text-xs">Start by adding your first stop — e.g. "san francisco apr 3"</p>
-		</div>
-	{/if}
-</div>
+	</div>
