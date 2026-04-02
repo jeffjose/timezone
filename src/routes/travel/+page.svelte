@@ -110,28 +110,83 @@
 		...legs.map(l => ({ ...l, isHome: false as const })),
 	]);
 
-	let legTimelines = $derived(allLegs.map((leg, i) => {
-		const offsetMin = getTimezoneOffset(leg.tzId, new Date(leg.date));
-		const abbr = getTimezoneAbbr(leg.tzId, new Date(leg.date));
-		const offsetStr = formatOffset(offsetMin);
+	// Build all rows: real legs + ghost intermediate days
+	interface TimelineRow {
+		id: number;
+		city: string;
+		tzId: string;
+		date: string;
+		isHome: boolean;
+		isGhost: boolean;
+		ghostLabel?: string; // e.g. "Apr 4" for ghost days
+		offsetMin: number;
+		abbr: string;
+		offsetStr: string;
+		arrivalHour: number;
+		departureHour: number;
+	}
 
-		const legDate = new Date(leg.date);
-		const arrivalHour = (legDate.getTime() - tripSpan.startDate.getTime()) / 3600000;
+	let legTimelines: TimelineRow[] = $derived((() => {
+		const rows: TimelineRow[] = [];
 
-		const nextLeg = allLegs[i + 1];
-		const departureHour = nextLeg
-			? (new Date(nextLeg.date).getTime() - tripSpan.startDate.getTime()) / 3600000
-			: arrivalHour + 24;
+		for (let i = 0; i < allLegs.length; i++) {
+			const leg = allLegs[i];
+			const offsetMin = getTimezoneOffset(leg.tzId, new Date(leg.date));
+			const abbr = getTimezoneAbbr(leg.tzId, new Date(leg.date));
+			const offsetStr = formatOffset(offsetMin);
+			const legDate = new Date(leg.date);
+			const arrivalHour = (legDate.getTime() - tripSpan.startDate.getTime()) / 3600000;
+			const nextLeg = allLegs[i + 1];
+			const departureHour = nextLeg
+				? (new Date(nextLeg.date).getTime() - tripSpan.startDate.getTime()) / 3600000
+				: arrivalHour + 24;
 
-		return {
-			...leg,
-			offsetMin,
-			abbr,
-			offsetStr,
-			arrivalHour,
-			departureHour,
-		};
-	}));
+			rows.push({
+				...leg,
+				isGhost: false,
+				offsetMin,
+				abbr,
+				offsetStr,
+				arrivalHour,
+				departureHour,
+			});
+
+			// Add ghost days between this leg and the next
+			if (nextLeg) {
+				const thisDate = new Date(leg.date + 'T12:00:00');
+				const nextDate = new Date(nextLeg.date + 'T12:00:00');
+				const daysBetween = Math.round((nextDate.getTime() - thisDate.getTime()) / 86400000);
+
+				// Ghost days use the NEXT destination's timezone (you're traveling toward it)
+				for (let d = 1; d < daysBetween; d++) {
+					const ghostDate = new Date(thisDate);
+					ghostDate.setDate(ghostDate.getDate() + d);
+					const ghostIso = ghostDate.toISOString().split('T')[0];
+					const ghostLabel = new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric' }).format(ghostDate);
+					const gOffsetMin = getTimezoneOffset(nextLeg.tzId, ghostDate);
+					const gAbbr = getTimezoneAbbr(nextLeg.tzId, ghostDate);
+					const gOffsetStr = formatOffset(gOffsetMin);
+					const gArrivalHour = (ghostDate.getTime() - 12 * 3600000 - tripSpan.startDate.getTime()) / 3600000; // midnight
+
+					rows.push({
+						id: -(1000 + i * 100 + d),
+						city: '',
+						tzId: nextLeg.tzId,
+						date: ghostIso,
+						isHome: false,
+						isGhost: true,
+						ghostLabel,
+						offsetMin: gOffsetMin,
+						abbr: gAbbr,
+						offsetStr: gOffsetStr,
+						arrivalHour: gArrivalHour,
+						departureHour: gArrivalHour + 24,
+					});
+				}
+			}
+		}
+		return rows;
+	})());
 
 	// Now position as hours from trip start
 	let nowHourFromStart = $derived(
@@ -893,110 +948,141 @@
 			<!-- Rows + overlays -->
 			<div class="flex flex-col relative">
 				{#each legTimelines as row, rowIdx}
-					{@const isHome = 'isHome' in row && row.isHome}
-					{@const legIdx = rowIdx - 1}
-					{@const timeDiff = rowIdx > 0 ? getTimeDiff(legTimelines[0].tzId, row.tzId, new Date(row.date)) : null}
+					{@const isHome = row.isHome}
+					{@const isGhost = row.isGhost}
+					{@const legIdx = isGhost ? -1 : allLegs.findIndex(l => l.id === row.id) - 1}
+					{@const timeDiff = !isHome && !isGhost ? getTimeDiff(legTimelines[0].tzId, row.tzId, new Date(row.date)) : null}
+					{@const realRowCount = allLegs.length}
+					{@const rowHeight = isGhost ? 10 : (realRowCount <= 5 ? 96 : Math.max(56, 480 / realRowCount))}
 
-					<div class="flex items-stretch gap-0" style="height: {legTimelines.length <= 5 ? 96 : Math.max(56, 480 / legTimelines.length)}px">
+					<div class="flex items-stretch gap-0" style="height: {rowHeight}px">
 						<!-- Row label -->
 						<div class="group w-44 max-sm:hidden shrink-0 flex items-center justify-end pr-3 relative">
-							<!-- Reorder buttons (destinations only, not home) -->
-							{#if !isHome}
-								<div class="absolute left-0 top-1/2 -translate-y-1/2 flex flex-col opacity-0 group-hover:opacity-100 transition-opacity">
-									{#if legIdx > 0}
-										<button
-											type="button"
-											onclick={() => moveLeg(legIdx, -1)}
-											class="p-0.5 rounded hover:bg-accent text-muted-foreground hover:text-foreground transition-colors"
-										>
-											<ChevronUp class="h-3 w-3" />
-										</button>
-									{/if}
-									{#if legIdx < legs.length - 1}
-										<button
-											type="button"
-											onclick={() => moveLeg(legIdx, 1)}
-											class="p-0.5 rounded hover:bg-accent text-muted-foreground hover:text-foreground transition-colors"
-										>
-											<ChevronDown class="h-3 w-3" />
-										</button>
+							{#if isGhost}
+								<!-- Ghost day: just a faint date label -->
+								<span class="text-[9px] text-muted-foreground/30">{row.ghostLabel}</span>
+							{:else}
+								<!-- Reorder buttons (destinations only, not home) -->
+								{#if !isHome}
+									<div class="absolute left-0 top-1/2 -translate-y-1/2 flex flex-col opacity-0 group-hover:opacity-100 transition-opacity">
+										{#if legIdx > 0}
+											<button
+												type="button"
+												onclick={() => moveLeg(legIdx, -1)}
+												class="p-0.5 rounded hover:bg-accent text-muted-foreground hover:text-foreground transition-colors"
+											>
+												<ChevronUp class="h-3 w-3" />
+											</button>
+										{/if}
+										{#if legIdx < legs.length - 1}
+											<button
+												type="button"
+												onclick={() => moveLeg(legIdx, 1)}
+												class="p-0.5 rounded hover:bg-accent text-muted-foreground hover:text-foreground transition-colors"
+											>
+												<ChevronDown class="h-3 w-3" />
+											</button>
+										{/if}
+									</div>
+								{/if}
+								<div class="text-right">
+									<div class="flex items-center gap-1.5 justify-end">
+										{#if isHome}
+											<LocateFixed class="h-3 w-3 text-blue-400" />
+										{/if}
+										<span class="font-medium text-sm leading-tight truncate">{row.city}</span>
+									</div>
+									{#if hoverPct !== null}
+										{@const hoveredTime = getHoveredTimeForTz(row.tzId, hoverPct)}
+										<div class="flex items-baseline gap-1 justify-end mt-0.5">
+											<span class="text-xs font-semibold text-foreground">{hoveredTime.time}</span>
+											<span class="text-[10px] text-muted-foreground">{hoveredTime.date}</span>
+										</div>
+									{:else}
+										<div class="flex items-baseline gap-1.5 justify-end mt-0.5">
+											<span class="text-xs font-semibold text-foreground/90 tabular-nums">{formatLocalTime(row.tzId, now)}</span>
+											<span class="text-[10px] text-muted-foreground">{row.abbr}</span>
+											<span class="text-[10px] text-muted-foreground/60">{row.offsetStr}</span>
+										</div>
+										{#if timeDiff}
+											<div class="text-[9px] text-muted-foreground/40">{timeDiff}</div>
+										{/if}
 									{/if}
 								</div>
 							{/if}
-							<div class="text-right">
-								<div class="flex items-center gap-1.5 justify-end">
-									{#if isHome}
-										<LocateFixed class="h-3 w-3 text-blue-400" />
-									{/if}
-									<span class="font-medium text-sm leading-tight truncate">{row.city}</span>
-								</div>
-								{#if hoverPct !== null}
-									{@const hoveredTime = getHoveredTimeForTz(row.tzId, hoverPct)}
-									<div class="flex items-baseline gap-1 justify-end mt-0.5">
-										<span class="text-xs font-semibold text-foreground">{hoveredTime.time}</span>
-										<span class="text-[10px] text-muted-foreground">{hoveredTime.date}</span>
-									</div>
-								{:else}
-									<div class="flex items-baseline gap-1.5 justify-end mt-0.5">
-										<span class="text-xs font-semibold text-foreground/90 tabular-nums">{formatLocalTime(row.tzId, now)}</span>
-										<span class="text-[10px] text-muted-foreground">{row.abbr}</span>
-										<span class="text-[10px] text-muted-foreground/60">{row.offsetStr}</span>
-									</div>
-									{#if timeDiff}
-										<div class="text-[9px] text-muted-foreground/40">{timeDiff}</div>
-									{/if}
-								{/if}
-							</div>
 						</div>
 
 						<!-- Horizontal strip -->
 						<div class="relative flex-1 overflow-hidden bg-card cells-area {rowIdx < legTimelines.length - 1 ? 'border-b border-border/30' : ''} {rowIdx === 0 ? 'rounded-t-lg' : ''} {rowIdx === legTimelines.length - 1 ? 'rounded-b-lg' : ''}"
 						>
-							<!-- Daylight arcs (one per day, colored) -->
-							<svg
-								class="absolute inset-0 w-full h-full pointer-events-none"
-								viewBox="0 0 100 40"
-								preserveAspectRatio="none"
-							>
-								<defs>
-									{#each getVizArcs(row.tzId, timelineStart, timelineEnd, homeTz) as arc, arcIdx}
-										<linearGradient id="day-grad-{rowIdx}-{arcIdx}" x1="0" y1="0" x2="0" y2="1">
-											<stop offset="0%" stop-color="rgb({arc.color.r}, {arc.color.g}, {arc.color.b})" stop-opacity="0.15" />
-											<stop offset="100%" stop-color="rgb({arc.color.r}, {arc.color.g}, {arc.color.b})" stop-opacity="0.0" />
-										</linearGradient>
-									{/each}
-								</defs>
-								{#each getVizArcs(row.tzId, timelineStart, timelineEnd, homeTz) as arc, arcIdx}
-									<!-- Filled area -->
-									<path
-										d={arc.path}
-										fill="url(#day-grad-{rowIdx}-{arcIdx})"
-									/>
-									<!-- Stroke line -->
-									<path
-										d={arc.strokePath}
-										fill="none"
-										stroke="rgb({arc.color.r}, {arc.color.g}, {arc.color.b})"
-										stroke-opacity="0.4"
-										stroke-width="1"
-										vector-effect="non-scaling-stroke"
-									/>
-								{/each}
-							</svg>
-
-							<!-- Per-row midnight gridlines (colored) -->
-							{#each getMidnightPositions(row.tzId, timelineStart, timelineEnd, homeTz) as midnight}
-								<div
-									class="absolute inset-y-0 w-px"
-									style="left: {midnight.pct}%; background: rgba({midnight.color.r}, {midnight.color.g}, {midnight.color.b}, 0.3)"
-								></div>
-								<div
-									class="absolute top-1 text-[8px] font-medium"
-									style="left: {midnight.pct + 0.5}%; color: rgba({midnight.color.r}, {midnight.color.g}, {midnight.color.b}, 0.5)"
+							{#if isGhost}
+								<!-- Ghost row: monochrome faint arc, no labels -->
+								<svg
+									class="absolute inset-0 w-full h-full pointer-events-none"
+									viewBox="0 0 100 40"
+									preserveAspectRatio="none"
 								>
-									{midnight.label}
-								</div>
-							{/each}
+									{#each getVizArcs(row.tzId, timelineStart, timelineEnd, homeTz) as arc}
+										<path
+											d={arc.path}
+											fill="white"
+											fill-opacity="0.03"
+										/>
+										<path
+											d={arc.strokePath}
+											fill="none"
+											stroke="white"
+											stroke-opacity="0.1"
+											stroke-width="1"
+											vector-effect="non-scaling-stroke"
+										/>
+									{/each}
+								</svg>
+							{:else}
+								<!-- Real row: colored arcs with gradient -->
+								<svg
+									class="absolute inset-0 w-full h-full pointer-events-none"
+									viewBox="0 0 100 40"
+									preserveAspectRatio="none"
+								>
+									<defs>
+										{#each getVizArcs(row.tzId, timelineStart, timelineEnd, homeTz) as arc, arcIdx}
+											<linearGradient id="day-grad-{rowIdx}-{arcIdx}" x1="0" y1="0" x2="0" y2="1">
+												<stop offset="0%" stop-color="rgb({arc.color.r}, {arc.color.g}, {arc.color.b})" stop-opacity="0.15" />
+												<stop offset="100%" stop-color="rgb({arc.color.r}, {arc.color.g}, {arc.color.b})" stop-opacity="0.0" />
+											</linearGradient>
+										{/each}
+									</defs>
+									{#each getVizArcs(row.tzId, timelineStart, timelineEnd, homeTz) as arc, arcIdx}
+										<path
+											d={arc.path}
+											fill="url(#day-grad-{rowIdx}-{arcIdx})"
+										/>
+										<path
+											d={arc.strokePath}
+											fill="none"
+											stroke="rgb({arc.color.r}, {arc.color.g}, {arc.color.b})"
+											stroke-opacity="0.4"
+											stroke-width="1"
+											vector-effect="non-scaling-stroke"
+										/>
+									{/each}
+								</svg>
+
+								<!-- Per-row midnight gridlines (colored) -->
+								{#each getMidnightPositions(row.tzId, timelineStart, timelineEnd, homeTz) as midnight}
+									<div
+										class="absolute inset-y-0 w-px"
+										style="left: {midnight.pct}%; background: rgba({midnight.color.r}, {midnight.color.g}, {midnight.color.b}, 0.3)"
+									></div>
+									<div
+										class="absolute top-1 text-[8px] font-medium"
+										style="left: {midnight.pct + 0.5}%; color: rgba({midnight.color.r}, {midnight.color.g}, {midnight.color.b}, 0.5)"
+									>
+										{midnight.label}
+									</div>
+								{/each}
+							{/if}
 
 							<!-- Now line (blue, vertical) -->
 							{#if nowInRange}
