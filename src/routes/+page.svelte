@@ -1278,9 +1278,9 @@ function handleMarkerLineClick(e: MouseEvent, markerId: number) {
 					>
 						<Briefcase class="h-4 w-4" />
 					</button>
-					<div class="absolute bottom-full right-0 mb-2 px-2.5 py-1.5 rounded-md bg-popover border border-border shadow-lg text-xs text-popover-foreground whitespace-nowrap opacity-0 group-hover/work:opacity-100 pointer-events-none transition-opacity">
+					<div class="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-2.5 py-1.5 rounded-md bg-popover border border-border shadow-lg text-xs text-popover-foreground whitespace-nowrap opacity-0 group-hover/work:opacity-100 pointer-events-none transition-opacity">
 						{showWorkingHours ? 'Hide' : 'Show'} working hours (9–5)
-						<div class="absolute top-full right-3 w-2 h-2 bg-popover border-r border-b border-border rotate-45 -mt-1"></div>
+						<div class="absolute top-full left-1/2 -translate-x-1/2 w-2 h-2 bg-popover border-r border-b border-border rotate-45 -mt-1"></div>
 					</div>
 				</div>
 			</div>
