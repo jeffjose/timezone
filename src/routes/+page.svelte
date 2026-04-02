@@ -716,25 +716,29 @@
 		const peakHour = rangeStart + rangeLen / 2; // center of range
 		const offsetMinutes = getTimezoneOffset(tz, offsetBase);
 
-		for (let i = 0; i <= steps; i++) {
-			const hourIndex = i / 2;
+		// Use higher sampling for smoother curves
+		const sampleRate = 8; // points per cell
+		const totalSamples = TOTAL_CELLS * sampleRate;
+
+		for (let i = 0; i <= totalSamples; i++) {
+			const hourIndex = i / sampleRate;
 			const utcHour = renderStart + hourIndex;
-			// Use continuous fractional local hour for smooth curve
-			const localMinutes = utcHour * 60 + offsetMinutes;
-			const continuousHour = (((localMinutes / 60) % 24) + 24) % 24;
+			// Use raw continuous local hour (no modulo) so cosine stays smooth across midnight
+			const continuousLocalHour = (utcHour * 60 + offsetMinutes) / 60;
 			let val: number;
 			if (workMode) {
-				// Single hump from rangeStart to rangeStart+rangeLen, zero outside
-				const hoursIntoRange = ((continuousHour - rangeStart + 24) % 24);
+				// Single hump per day within the working range
+				// Find hour-of-day without discontinuity
+				const hourOfDay = ((continuousLocalHour % 24) + 24) % 24;
+				const hoursIntoRange = hourOfDay - rangeStart;
 				if (hoursIntoRange >= 0 && hoursIntoRange <= rangeLen) {
-					// Half-cosine: 0 at edges, 1 at center
 					val = Math.sin((hoursIntoRange / rangeLen) * Math.PI);
 				} else {
 					val = 0;
 				}
 			} else {
-				// Full day cosine peaking at 1pm
-				const radians = ((continuousHour - peakHour) / rangeLen) * Math.PI * 2;
+				// Full day cosine peaking at 1pm — use raw hour, cosine is naturally periodic
+				const radians = ((continuousLocalHour - peakHour) / rangeLen) * Math.PI * 2;
 				val = (Math.cos(radians) + 1) / 2;
 			}
 			const x = (hourIndex / TOTAL_CELLS) * 100;
