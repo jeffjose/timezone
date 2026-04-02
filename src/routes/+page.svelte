@@ -811,6 +811,14 @@
 		new Map(selectedTimezones.map(e => [e.id, getProgressPath(e.id, showWorkingHours)]))
 	);
 
+	// Full-day paths (no working hours clamp) for extended hours regions
+	let cachedFullDaylightPaths = $derived(
+		new Map(selectedTimezones.map(e => [e.id, getDaylightPath(e.id, false)]))
+	);
+	let cachedFullProgressPaths = $derived(
+		new Map(selectedTimezones.map(e => [e.id, getProgressPath(e.id, false)]))
+	);
+
 	function formatTimeWithSeconds(tz: string): string {
 		return new Intl.DateTimeFormat('en-US', {
 			timeZone: tz,
@@ -1808,12 +1816,13 @@ function handleMarkerLineClick(e: MouseEvent, markerId: number) {
 													{/each}
 												</clipPath>
 												<path
-													d={(arcMode === 'progress' ? cachedProgressPaths.get(entry.id) : cachedDaylightPaths.get(entry.id)) ?? ''}
-													fill="rgba(255,255,255,0.15)"
-													stroke="rgba(255,255,255,0.3)"
-													stroke-width="0.5"
+													d={(arcMode === 'progress' ? cachedFullProgressPaths.get(entry.id) : cachedFullDaylightPaths.get(entry.id)) ?? ''}
+													fill="url(#daylight-{rowIndex})"
+													stroke="rgba(255,255,255,0.10)"
+													stroke-width="0.4"
 													vector-effect="non-scaling-stroke"
 													clip-path="url(#ext-clip-{rowIndex})"
+													opacity="0.6"
 												/>
 											{:else}
 												<path
