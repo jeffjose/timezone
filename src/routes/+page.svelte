@@ -120,6 +120,22 @@
 	// Day progress arc mode: 'arc' (sine/cosine) or 'progress' (linear sawtooth)
 	let arcMode: 'arc' | 'progress' = $state('arc');
 
+	function saveSettings() {
+		try {
+			localStorage.setItem('timezone-settings', JSON.stringify({ showWorkingHours, arcMode }));
+		} catch {}
+	}
+
+	function loadSettings() {
+		try {
+			const raw = localStorage.getItem('timezone-settings');
+			if (!raw) return;
+			const s = JSON.parse(raw);
+			if (typeof s.showWorkingHours === 'boolean') showWorkingHours = s.showWorkingHours;
+			if (s.arcMode === 'arc' || s.arcMode === 'progress') arcMode = s.arcMode;
+		} catch {}
+	}
+
 	// Derived
 	let showDropdown = $derived(searchFocused && query.length > 0 && (searchResults.length > 0 || isSearchingRemote));
 	let selectedIds = $derived(selectedTimezones.map((t) => t.id));
@@ -369,6 +385,7 @@
 	}
 
 	onMount(async () => {
+		loadSettings();
 
 		// If no URL params, check localStorage (client-only)
 		if (!$page.url.searchParams.get('tz')) {
@@ -677,22 +694,24 @@
 	}
 
 	// Daylight arc SVG path spanning all rendered cells
-	function getDaylightPath(tz: string): string {
+	function getDaylightPath(tz: string, workMode: boolean = false): string {
 		const points: { x: number; y: number }[] = [];
 		const height = 40;
 		const maxArc = height * 0.65;
 		const steps = TOTAL_CELLS * 2;
+		const rangeStart = workMode ? 9 : 0;
+		const rangeLen = workMode ? 8 : 24;
+		const peakHour = rangeStart + rangeLen / 2; // center of range
 
 		for (let i = 0; i <= steps; i++) {
 			const hourIndex = i / 2;
 			const hour = renderStart + hourIndex;
-			// Get the actual tz hour (0-23) for this position
 			const actualHour = getTzHourValue(tz, Math.floor(hour));
 			const frac = hour - Math.floor(hour);
 			const continuousHour = actualHour + frac;
-			// Cosine peaks at 13 (1pm)
-			const radians = ((continuousHour - 13) / 24) * Math.PI * 2;
-			const val = (Math.cos(radians) + 1) / 2;
+			// Cosine peaks at center of range, period = rangeLen
+			const radians = ((continuousHour - peakHour) / rangeLen) * Math.PI * 2;
+			const val = Math.max(0, (Math.cos(radians) + 1) / 2);
 			const x = (hourIndex / TOTAL_CELLS) * 100;
 			const y = height - val * maxArc;
 			points.push({ x, y });
@@ -756,7 +775,7 @@
 
 	// Cache daylight paths — only recompute when renderAnchor or timezones change, not on drag
 	let cachedDaylightPaths = $derived(
-		new Map(selectedTimezones.map(e => [e.id, getDaylightPath(e.id)]))
+		new Map(selectedTimezones.map(e => [e.id, getDaylightPath(e.id, showWorkingHours)]))
 	);
 
 	let cachedProgressPaths = $derived(
@@ -1321,7 +1340,7 @@ function handleMarkerLineClick(e: MouseEvent, markerId: number) {
 				<div class="relative group/work ml-1">
 					<button
 						type="button"
-						onclick={() => showWorkingHours = !showWorkingHours}
+						onclick={() => { showWorkingHours = !showWorkingHours; saveSettings(); }}
 						class="p-1.5 rounded-md transition-colors
 							{showWorkingHours
 								? 'bg-amber-500/15 text-amber-500'
@@ -1338,7 +1357,7 @@ function handleMarkerLineClick(e: MouseEvent, markerId: number) {
 				<div class="flex items-center rounded-md border border-border overflow-hidden ml-1">
 					<button
 						type="button"
-						onclick={() => arcMode = 'arc'}
+						onclick={() => { arcMode = 'arc'; saveSettings(); }}
 						class="px-2 py-1 text-[11px] font-medium transition-colors flex items-center gap-1
 							{arcMode === 'arc'
 								? 'bg-accent text-foreground'
@@ -1350,7 +1369,7 @@ function handleMarkerLineClick(e: MouseEvent, markerId: number) {
 					<div class="w-px h-4 bg-border"></div>
 					<button
 						type="button"
-						onclick={() => arcMode = 'progress'}
+						onclick={() => { arcMode = 'progress'; saveSettings(); }}
 						class="px-2 py-1 text-[11px] font-medium transition-colors flex items-center gap-1
 							{arcMode === 'progress'
 								? 'bg-accent text-foreground'
