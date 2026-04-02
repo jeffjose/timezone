@@ -722,7 +722,7 @@
 				{#each legTimelines as row, rowIdx}
 					{@const timeDiff = rowIdx > 0 ? getTimeDiff(legTimelines[0].tzId, row.tzId, new Date(row.date)) : null}
 
-					<div class="flex items-stretch gap-0" style="height: {legTimelines.length <= 5 ? 40 : Math.max(24, 200 / legTimelines.length)}px">
+					<div class="flex items-stretch gap-0" style="height: {legTimelines.length <= 5 ? 80 : Math.max(48, 400 / legTimelines.length)}px">
 						<!-- Row label -->
 						<div class="group w-44 max-sm:hidden shrink-0 flex items-center justify-end pr-3 relative">
 							<!-- Reorder buttons -->
