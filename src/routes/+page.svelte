@@ -12,7 +12,7 @@
 		type TimezoneInfo,
 		type SearchResult,
 	} from '$lib/timezones';
-	import { X, ChevronUp, ChevronDown, Search, Globe, ChevronLeft, ChevronRight, CalendarDays, Plus, EllipsisVertical, Trash2, Copy, MoveHorizontal, LocateFixed } from '@lucide/svelte';
+	import { X, ChevronUp, ChevronDown, Search, Globe, ChevronLeft, ChevronRight, CalendarDays, Plus, EllipsisVertical, Trash2, Copy, MoveHorizontal, LocateFixed, Briefcase } from '@lucide/svelte';
 	import { DropdownMenu } from 'bits-ui';
 
 	interface SelectedTz {
@@ -115,6 +115,8 @@
 	let markerMenuId: number | null = $state(null); // marker with open menu
 	// Marker dot tooltip state
 	let dotTooltip: { markerId: number; rowIndex: number; x: number; y: number; position: 'above' | 'below' } | null = $state(null);
+	// Working hours highlight
+	let showWorkingHours = $state(false);
 
 	// Derived
 	let showDropdown = $derived(searchFocused && query.length > 0 && (searchResults.length > 0 || isSearchingRemote));
@@ -652,6 +654,15 @@
 		const period = labelHour < 12 ? 'AM' : 'PM';
 
 		return { displayHour, period, dayOffset: adjustedDayOffset };
+	}
+
+	function isWorkingHour(tz: string, utcHour: number): boolean {
+		const h = getTzHourValue(tz, utcHour);
+		return h >= 9 && h < 17;
+	}
+
+	function isOverlapWorkingHour(utcHour: number): boolean {
+		return selectedTimezones.every(tz => isWorkingHour(tz.id, utcHour));
 	}
 
 	function getTzHourValue(tz: string, utcHour: number): number {
@@ -1250,6 +1261,18 @@ function handleMarkerLineClick(e: MouseEvent, markerId: number) {
 				>
 					<ChevronRight class="h-4 w-4" />
 				</button>
+
+				<button
+					type="button"
+					onclick={() => showWorkingHours = !showWorkingHours}
+					title="Highlight working hours (9 AM – 5 PM)"
+					class="p-1.5 rounded-md transition-colors ml-1
+						{showWorkingHours
+							? 'bg-amber-500/15 text-amber-500'
+							: 'text-muted-foreground hover:text-foreground hover:bg-accent'}"
+				>
+					<Briefcase class="h-4 w-4" />
+				</button>
 			</div>
 		</div>
 	</div>
@@ -1627,10 +1650,12 @@ function handleMarkerLineClick(e: MouseEvent, markerId: number) {
 											{@const isNow = hour === (cachedNowCell.get(entry.id) ?? -1)}
 											{@const isMidnight = actualHour === 0}
 											{@const dayColor = getDayColor(tzHour.dayOffset)}
+											{@const isWork = showWorkingHours && isWorkingHour(entry.id, hour)}
+											{@const isOverlap = showWorkingHours && isOverlapWorkingHour(hour)}
 											<div
 												class="h-10 flex items-center justify-center relative shrink-0 z-10
 													{isMidnight ? 'border-l-2' : 'border-l border-l-border/20'}"
-												style="width: {cellWidth}px; background: {dayColor.bg}; {isMidnight ? `border-left-color: ${dayColor.border}` : ''}"
+												style="width: {cellWidth}px; background: {isOverlap ? 'rgba(34, 197, 94, 0.12)' : dayColor.bg}; {isMidnight ? `border-left-color: ${dayColor.border}` : ''} {showWorkingHours && !isWork ? 'opacity: 0.3;' : ''}"
 											>
 												{#if isMidnight}
 													{@const dateLabel = getMidnightDateLabel(tzHour.dayOffset)}
