@@ -1660,12 +1660,13 @@ function handleMarkerLineClick(e: MouseEvent, markerId: number) {
 											{@const isNow = hour === (cachedNowCell.get(entry.id) ?? -1)}
 											{@const isMidnight = actualHour === 0}
 											{@const dayColor = getDayColor(tzHour.dayOffset)}
-											{@const isWork = showWorkingHours && isWorkingHour(entry.id, hour)}
+											{@const workHour = actualHour >= 9 && actualHour < 17}
 											{@const isOverlap = showWorkingHours && isOverlapWorkingHour(hour)}
+											{@const dimCell = showWorkingHours && !workHour}
 											<div
 												class="h-10 flex items-center justify-center relative shrink-0 z-10
 													{isMidnight ? 'border-l-2' : 'border-l border-l-border/20'}"
-												style="width: {cellWidth}px; background: {isOverlap ? 'rgba(34, 197, 94, 0.12)' : dayColor.bg}; {isMidnight ? `border-left-color: ${showWorkingHours && !isWork ? 'rgba(128,128,128,0.3)' : dayColor.border}` : ''} {showWorkingHours && !isWork ? 'filter: grayscale(1) brightness(0.4);' : ''}"
+												style="width: {cellWidth}px; background: {isOverlap ? 'rgba(34, 197, 94, 0.12)' : dayColor.bg}; {isMidnight ? `border-left-color: ${dimCell ? 'rgba(128,128,128,0.3)' : dayColor.border}` : ''} {dimCell ? 'filter: grayscale(1) brightness(0.4);' : ''}"
 											>
 												{#if isMidnight}
 													{@const dateLabel = getMidnightDateLabel(tzHour.dayOffset)}
