@@ -419,12 +419,12 @@
 			const samples = Math.ceil((segEnd - segStart) * sampleRate);
 			if (samples < 2) continue;
 
-			// Determine day offset from today
+			// Determine day offset from today in the row's timezone
 			const midUtcHour = (segStart + segEnd) / 2;
 			const absDate = new Date(tripSpan.startDate.getTime() + midUtcHour * 3600000);
-			const absDayStart = new Date(absDate);
-			absDayStart.setHours(0, 0, 0, 0);
-			const dayOffset = Math.round((absDayStart.getTime() - todayStart.getTime()) / 86400000);
+			const tzDateStr = new Intl.DateTimeFormat('en-CA', { timeZone: tzId, year: 'numeric', month: '2-digit', day: '2-digit' }).format(absDate);
+			const todayStr = new Intl.DateTimeFormat('en-CA', { timeZone: tzId, year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
+			const dayOffset = Math.round((new Date(tzDateStr).getTime() - new Date(todayStr).getTime()) / 86400000);
 			const color = getDayColor(dayOffset);
 
 			const points: { x: number; y: number }[] = [];
@@ -505,10 +505,10 @@
 			if (pct > 1 && pct < 99) {
 				const absDate = new Date(tripSpan.startDate.getTime() + utcH * 3600000);
 				const label = new Intl.DateTimeFormat('en-US', { timeZone: tzId, month: 'short', day: 'numeric', weekday: 'short' }).format(absDate);
-				// Day offset: the day starting at this midnight
-				const dayStart = new Date(absDate);
-				dayStart.setHours(0, 0, 0, 0);
-				const dayOffset = Math.round((dayStart.getTime() - todayStart.getTime()) / 86400000);
+				// Day offset in this timezone
+				const tzDateStr = new Intl.DateTimeFormat('en-CA', { timeZone: tzId, year: 'numeric', month: '2-digit', day: '2-digit' }).format(absDate);
+				const todayStr = new Intl.DateTimeFormat('en-CA', { timeZone: tzId, year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
+				const dayOffset = Math.round((new Date(tzDateStr).getTime() - new Date(todayStr).getTime()) / 86400000);
 				const color = getDayColor(dayOffset);
 				results.push({ pct, label, color });
 			}
