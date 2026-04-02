@@ -729,11 +729,9 @@
 			if (i === 0) {
 				d = `M ${x} ${y}`;
 			} else if (actualHour < prevHour) {
-				// Midnight boundary: drop to bottom, then jump to top
-				const prevX = ((hourIndex - 0.5) / TOTAL_CELLS) * 100;
-				d += ` L ${prevX} ${height - 0}`;  // bottom at previous x
-				d += ` L ${prevX} ${height} L ${x} ${height}`;  // fill to baseline
-				d += ` M ${x} ${height - maxArc}`;  // jump to top
+				// Midnight boundary: drop to baseline, move across, rise to top
+				d += ` L ${x} ${height}`;  // drop to bottom
+				d += ` L ${x} ${height - maxArc}`;  // rise to top
 				d += ` L ${x} ${y}`;
 			} else {
 				d += ` L ${x} ${y}`;
