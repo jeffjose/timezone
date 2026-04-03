@@ -9,6 +9,7 @@
 		formatOffset,
 		searchTimezones,
 		searchTimezonesRemote,
+		getTimezoneFlag,
 		type TimezoneInfo,
 		type SearchResult,
 	} from '$lib/timezones';
@@ -34,6 +35,9 @@
 	const localTzInit = Intl.DateTimeFormat().resolvedOptions().timeZone;
 	const nowInit = new Date();
 	const initCenterHour = nowInit.getUTCHours() + nowInit.getUTCMinutes() / 60;
+	// Stable local midnight of page-load day — used as epoch for day offsets
+	const pageLoadLocalMidnight = new Date(nowInit);
+	pageLoadLocalMidnight.setHours(0, 0, 0, 0);
 
 	// Parse timezones from URL on server+client (no onMount needed)
 	function getInitialTimezones(): SelectedTz[] {
@@ -140,6 +144,13 @@
 	let showDropdown = $derived(searchFocused && query.length > 0 && (searchResults.length > 0 || isSearchingRemote));
 	let selectedIds = $derived(selectedTimezones.map((t) => t.id));
 	let refTzId = $derived(selectedTimezones[0]?.id);
+	// Day correction: how many local days UTC midnight of page-load is from local today
+	// Used to normalize dayOffset so that dayOffset=0 means the user's local "today"
+	let loadDayInRef = $derived((() => {
+		if (!refTzId) return 0;
+		const refOffsetHours = getTimezoneOffset(refTzId, offsetBase) / 60;
+		return Math.floor((initCenterHour + refOffsetHours) / 24);
+	})());
 	let cellWidth = $derived(containerWidth / 24);
 
 	// The range of UTC hours to render: 264 hours (11 days)
@@ -191,15 +202,15 @@
 	let nowLineVisible = $derived(nowLinePercent >= 0 && nowLinePercent <= 100);
 
 	// selectedDate follows the center of the viewport, in ref tz local time
+	// Normalized so viewDayOffset=0 at page load (UTC date may differ from local date)
 	let viewDayOffset = $derived((() => {
 		if (!refTzId) return 0;
 		const refOffsetHours = getTimezoneOffset(refTzId, offsetBase) / 60;
-		return Math.floor((centerHour + refOffsetHours) / 24);
+		return Math.floor((centerHour + refOffsetHours) / 24) - loadDayInRef;
 	})());
 	let selectedDate = $derived((() => {
-		const d = new Date();
+		const d = new Date(pageLoadLocalMidnight);
 		d.setDate(d.getDate() + viewDayOffset);
-		d.setHours(0, 0, 0, 0);
 		return d;
 	})());
 
@@ -210,8 +221,7 @@
 	let navAnchorDay = $state(0); // day offset from today that the nav is centered on
 	let navPillWidth = $derived(navContainerWidth / (isMobile ? 5 : 7));
 	let navDays = $derived(Array.from({ length: NAV_DAYS_COUNT }, (_, i) => {
-		const d = new Date();
-		d.setHours(0, 0, 0, 0);
+		const d = new Date(pageLoadLocalMidnight);
 		d.setDate(d.getDate() + navAnchorDay + (i - NAV_DAYS_HALF));
 		return d;
 	}));
@@ -230,7 +240,7 @@
 		if (!refTzId) return 0;
 		const refOffsetHours = getTimezoneOffset(refTzId, offsetBase) / 60;
 		const localHourFrac = centerHour + refOffsetHours;
-		const centerDayFrac = localHourFrac / 24;
+		const centerDayFrac = localHourFrac / 24 - loadDayInRef;
 		const pillIndexFromStart = centerDayFrac - navAnchorDay + NAV_DAYS_HALF;
 		const centerPillPos = pillIndexFromStart * navPillWidth;
 		return navContainerWidth / 2 - centerPillPos;
@@ -267,14 +277,9 @@
 
 	function goToDate(date: Date) {
 		if (isSameDay(date, selectedDate)) return;
-		const target = new Date(date);
-		target.setHours(0, 0, 0, 0);
-		const todayDate = new Date();
-		todayDate.setHours(0, 0, 0, 0);
-		const targetDayOffset = Math.round((target.getTime() - todayDate.getTime()) / 86400000);
-		// Keep the same time-of-day within the target day
-		const hourInDay = ((centerHour % 24) + 24) % 24;
-		smoothNavigate(targetDayOffset * 24 + hourInDay);
+		// Shift centerHour by the day difference — preserves local time-of-day
+		const dayShift = Math.round((date.getTime() - selectedDate.getTime()) / 86400000);
+		smoothNavigate(centerHour + dayShift * 24);
 	}
 
 	function goToday() {
@@ -431,11 +436,12 @@
 					const res = await fetch(`https://nominatim.openstreetmap.org/reverse?lat=${pos.coords.latitude}&lon=${pos.coords.longitude}&format=json&zoom=10`);
 					const data = await res.json();
 					const city = data.address?.city || data.address?.town || data.address?.village;
+					const country = data.address?.country;
 					if (city) {
-						localCityName = city;
-						// Update label for local timezone entry
+						const label = country ? `${city}, ${country}` : city;
+						localCityName = label;
 						selectedTimezones = selectedTimezones.map(tz =>
-							tz.id === localTz ? { ...tz, label: city } : tz
+							tz.id === localTz ? { ...tz, label } : tz
 						);
 					}
 				} catch {}
@@ -497,15 +503,17 @@
 				const res = await fetch(`https://nominatim.openstreetmap.org/reverse?lat=${pos.coords.latitude}&lon=${pos.coords.longitude}&format=json&zoom=10`);
 				const data = await res.json();
 				const city = data.address?.city || data.address?.town || data.address?.village;
+				const country = data.address?.country;
 				if (city) {
-					localCityName = city;
+					const label = country ? `${city}, ${country}` : city;
+					localCityName = label;
 					const homeIndex = selectedTimezones.findIndex(tz => tz.id === localTz);
 					if (homeIndex >= 0) {
 						selectedTimezones = selectedTimezones.map(tz =>
-							tz.id === localTz ? { ...tz, label: city } : tz
+							tz.id === localTz ? { ...tz, label } : tz
 						);
 					} else {
-						selectedTimezones = [{ id: localTz, label: city }, ...selectedTimezones];
+						selectedTimezones = [{ id: localTz, label }, ...selectedTimezones];
 					}
 					saveToLocalStorage();
 					updateUrl();
@@ -640,7 +648,7 @@
 	// Stable date for offset calculations — NOT reactive to `now`.
 	// Only needs to reflect the day we're viewing (DST boundaries).
 	// Updated rarely: on mount + when selectedDate changes.
-	let offsetBase = new Date();
+	let offsetBase = $state(new Date());
 	$effect(() => {
 		// Re-derive when the viewed day changes (for DST correctness)
 		void selectedDate;
@@ -674,17 +682,19 @@
 		const localTotalMinutes = utcHour * 60 + offsetMinutes;
 		const localHour = (((Math.floor(localTotalMinutes / 60)) % 24) + 24) % 24;
 		const minutes = ((localTotalMinutes % 60) + 60) % 60;
-		const dayOffset = Math.floor(localTotalMinutes / (24 * 60));
+		const rawDayOffset = Math.floor(localTotalMinutes / (24 * 60));
 
 		// For :30/:45 offsets, strip is shifted so cell centers align with local hours.
 		// Round label to the hour at the cell center.
 		const labelHour = minutes >= 30 ? (localHour + 1) % 24 : localHour;
 		// If rounding pushed us past midnight (23→0), we've crossed into the next day
-		const adjustedDayOffset = (minutes >= 30 && localHour === 23) ? dayOffset + 1 : dayOffset;
+		const adjustedDayOffset = (minutes >= 30 && localHour === 23) ? rawDayOffset + 1 : rawDayOffset;
+		// Normalize so dayOffset=0 means the user's local "today"
+		const dayOffset = adjustedDayOffset - loadDayInRef;
 		const displayHour = labelHour % 12 || 12;
 		const period = labelHour < 12 ? 'AM' : 'PM';
 
-		return { displayHour, period, dayOffset: adjustedDayOffset };
+		return { displayHour, period, dayOffset };
 	}
 
 	function isWorkingHour(tz: string, utcHour: number): boolean {
@@ -869,7 +879,7 @@
 
 		const offsetMinutes = getTimezoneOffset(tz, offsetBase);
 		const localTotalMinutes = utcHour * 60 + offsetMinutes;
-		const dayOffset = Math.floor(localTotalMinutes / (24 * 60));
+		const dayOffset = Math.floor(localTotalMinutes / (24 * 60)) - loadDayInRef;
 		const minuteInDay = ((localTotalMinutes % (24 * 60)) + 24 * 60) % (24 * 60);
 		const h = Math.floor(minuteInDay / 60);
 		const m = Math.round(minuteInDay % 60);
@@ -877,9 +887,7 @@
 		const period = h < 12 ? 'AM' : 'PM';
 		const time = `${displayHour}:${String(m).padStart(2, '0')} ${period}`;
 
-		const todayDate = new Date();
-		todayDate.setHours(0, 0, 0, 0);
-		const hoveredDate = new Date(todayDate.getTime() + dayOffset * 86400000);
+		const hoveredDate = new Date(pageLoadLocalMidnight.getTime() + dayOffset * 86400000);
 		const date = new Intl.DateTimeFormat('en-US', {
 			weekday: 'short',
 			month: 'short',
@@ -932,9 +940,7 @@
 	}
 
 	function getMidnightDateLabel(dayOffset: number): { weekday: string; month: string; day: number } {
-		const todayDate = new Date();
-		todayDate.setHours(0, 0, 0, 0);
-		const d = new Date(todayDate.getTime() + dayOffset * 86400000);
+		const d = new Date(pageLoadLocalMidnight.getTime() + dayOffset * 86400000);
 		const weekday = new Intl.DateTimeFormat('en-US', { weekday: 'short' }).format(d).toUpperCase();
 		const month = new Intl.DateTimeFormat('en-US', { month: 'short' }).format(d).toUpperCase();
 		const day = d.getDate();
@@ -1450,7 +1456,7 @@ function handleMarkerLineClick(e: MouseEvent, markerId: number) {
 					onmouseleave={handleCreateStripMouseLeave}
 					style="cursor: crosshair"
 				>
-					<div class="w-44 shrink-0 max-sm:hidden"></div>
+					<div class="w-[14.5rem] shrink-0 max-sm:hidden"></div>
 					<div class="flex-1 relative h-6 marker-create-strip" style="overflow-x: clip">
 						<!-- Blue dot (now indicator) -->
 						{#if nowLineVisible}
@@ -1587,7 +1593,7 @@ function handleMarkerLineClick(e: MouseEvent, markerId: number) {
 				>
 					<!-- Blue now-line (desktop only — on mobile, rendered per-row) -->
 					{#if nowLineVisible}
-						<div class="absolute top-0 bottom-0 overflow-hidden pointer-events-none max-sm:hidden" style="left: 11rem; right: 0;">
+						<div class="absolute top-0 bottom-0 overflow-hidden pointer-events-none max-sm:hidden" style="left: 14.5rem; right: 0;">
 							<div
 								class="absolute top-0 bottom-0 w-[2px] bg-blue-500 z-20 -translate-x-1/2"
 								style="left: {nowLinePercent}%; {panTransition}"
@@ -1597,7 +1603,7 @@ function handleMarkerLineClick(e: MouseEvent, markerId: number) {
 
 					<!-- Gray hover-line (desktop only) -->
 					{#if hoverPercent !== null && !isDragging}
-						<div class="absolute top-0 bottom-0 overflow-hidden pointer-events-none max-sm:hidden" style="left: 11rem; right: 0;">
+						<div class="absolute top-0 bottom-0 overflow-hidden pointer-events-none max-sm:hidden" style="left: 14.5rem; right: 0;">
 							<div
 								class="absolute top-0 bottom-0 w-[1px] bg-foreground/30 z-30 -translate-x-1/2"
 								style="left: {hoverPercent}%"
@@ -1608,7 +1614,7 @@ function handleMarkerLineClick(e: MouseEvent, markerId: number) {
 					<!-- Marker lines + intervals (desktop — span all rows) -->
 					{#each markerPositions as marker}
 						{#if marker.visible}
-							<div class="absolute top-0 bottom-0 overflow-hidden max-sm:hidden" style="left: 11rem; right: 0; z-index: 25;">
+							<div class="absolute top-0 bottom-0 overflow-hidden max-sm:hidden" style="left: 14.5rem; right: 0; z-index: 25;">
 								<div class="relative h-full">
 									{#if marker.isInterval}
 										{@const isEditing = editingMarkerId === marker.id}
@@ -1645,7 +1651,7 @@ function handleMarkerLineClick(e: MouseEvent, markerId: number) {
 						{@const previewLeft = Math.min(previewStartPct, previewEndPct)}
 						{@const previewWidth = Math.abs(previewEndPct - previewStartPct)}
 						{@const previewColor = MARKER_COLORS[markers.length % MARKER_COLORS.length]}
-						<div class="absolute top-0 bottom-0 overflow-hidden pointer-events-none max-sm:hidden" style="left: 11rem; right: 0; z-index: 24;">
+						<div class="absolute top-0 bottom-0 overflow-hidden pointer-events-none max-sm:hidden" style="left: 14.5rem; right: 0; z-index: 24;">
 							<div class="relative h-full">
 								{#if previewWidth > 1}
 									<div class="absolute top-0 bottom-0"
@@ -1678,9 +1684,12 @@ function handleMarkerLineClick(e: MouseEvent, markerId: number) {
 								</div>
 
 								<!-- Timezone label -->
-								<div class="sm:w-38 sm:shrink-0 relative bg-background sm:pr-2 sm:h-12 flex flex-col sm:justify-center
-									max-sm:flex-row max-sm:items-baseline max-sm:gap-2 max-sm:px-1 max-sm:py-1">
+								<div class="sm:w-52 sm:shrink-0 relative bg-background sm:pr-2 sm:h-12 flex flex-col sm:justify-center
+									max-sm:flex-row max-sm:items-baseline max-sm:gap-2 max-sm:px-1 max-sm:py-1 whitespace-nowrap">
 									<div class="flex items-center gap-1.5">
+										{#if getTimezoneFlag(entry.id)}
+											<span class="text-sm shrink-0">{getTimezoneFlag(entry.id)}</span>
+										{/if}
 										<span class="font-medium text-sm leading-tight truncate">{entry.label}</span>
 										{#if entry.id === localTz}
 											<span class="text-[9px] font-medium text-blue-400 bg-blue-400/10 px-1 py-px rounded shrink-0">HOME</span>

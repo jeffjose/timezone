@@ -338,6 +338,84 @@ const CITY_COUNTRY: Record<string, string> = {
 	'Asia/Amman': 'Jordan',
 };
 
+// Map IANA timezone ID to ISO 3166-1 alpha-2 country code
+const TZ_COUNTRY_CODE: Record<string, string> = {
+	// US
+	'America/Los_Angeles': 'US', 'America/Chicago': 'US', 'America/New_York': 'US',
+	'America/Denver': 'US', 'America/Boise': 'US', 'America/Phoenix': 'US',
+	'Pacific/Honolulu': 'US', 'America/Anchorage': 'US', 'America/Detroit': 'US',
+	'America/Indiana/Indianapolis': 'US', 'America/Kentucky/Louisville': 'US',
+	// Canada
+	'America/Toronto': 'CA', 'America/Vancouver': 'CA', 'America/Edmonton': 'CA',
+	'America/Winnipeg': 'CA', 'America/Halifax': 'CA', 'America/St_Johns': 'CA',
+	'America/Regina': 'CA',
+	// Mexico
+	'America/Mexico_City': 'MX', 'America/Tijuana': 'MX', 'America/Cancun': 'MX',
+	// Central & South America
+	'America/Sao_Paulo': 'BR', 'America/Argentina/Buenos_Aires': 'AR',
+	'America/Lima': 'PE', 'America/Bogota': 'CO', 'America/Santiago': 'CL',
+	'America/Caracas': 'VE', 'America/Guayaquil': 'EC', 'America/La_Paz': 'BO',
+	'America/Montevideo': 'UY', 'America/Asuncion': 'PY', 'America/Havana': 'CU',
+	'America/Panama': 'PA', 'America/Costa_Rica': 'CR', 'America/Guatemala': 'GT',
+	'America/Jamaica': 'JM',
+	// Europe
+	'Europe/London': 'GB', 'Europe/Paris': 'FR', 'Europe/Berlin': 'DE',
+	'Europe/Madrid': 'ES', 'Europe/Rome': 'IT', 'Europe/Amsterdam': 'NL',
+	'Europe/Brussels': 'BE', 'Europe/Vienna': 'AT', 'Europe/Zurich': 'CH',
+	'Europe/Stockholm': 'SE', 'Europe/Oslo': 'NO', 'Europe/Copenhagen': 'DK',
+	'Europe/Helsinki': 'FI', 'Europe/Warsaw': 'PL', 'Europe/Prague': 'CZ',
+	'Europe/Budapest': 'HU', 'Europe/Bucharest': 'RO', 'Europe/Sofia': 'BG',
+	'Europe/Athens': 'GR', 'Europe/Lisbon': 'PT', 'Europe/Dublin': 'IE',
+	'Europe/Moscow': 'RU', 'Europe/Istanbul': 'TR', 'Europe/Kiev': 'UA',
+	'Europe/Kyiv': 'UA', 'Europe/Belgrade': 'RS', 'Europe/Zagreb': 'HR',
+	'Europe/Vilnius': 'LT', 'Europe/Riga': 'LV', 'Europe/Tallinn': 'EE',
+	'Europe/Luxembourg': 'LU', 'Europe/Malta': 'MT', 'Europe/Bratislava': 'SK',
+	'Europe/Ljubljana': 'SI',
+	// Asia
+	'Asia/Kolkata': 'IN', 'Asia/Calcutta': 'IN',
+	'Asia/Tokyo': 'JP', 'Asia/Shanghai': 'CN', 'Asia/Hong_Kong': 'HK',
+	'Asia/Seoul': 'KR', 'Asia/Taipei': 'TW', 'Asia/Singapore': 'SG',
+	'Asia/Kuala_Lumpur': 'MY', 'Asia/Jakarta': 'ID', 'Asia/Bangkok': 'TH',
+	'Asia/Ho_Chi_Minh': 'VN', 'Asia/Manila': 'PH', 'Asia/Dhaka': 'BD',
+	'Asia/Karachi': 'PK', 'Asia/Colombo': 'LK', 'Asia/Kathmandu': 'NP',
+	'Asia/Yangon': 'MM', 'Asia/Phnom_Penh': 'KH',
+	// Middle East
+	'Asia/Dubai': 'AE', 'Asia/Qatar': 'QA', 'Asia/Riyadh': 'SA',
+	'Asia/Jerusalem': 'IL', 'Asia/Tel_Aviv': 'IL', 'Asia/Beirut': 'LB',
+	'Asia/Amman': 'JO', 'Asia/Baghdad': 'IQ', 'Asia/Tehran': 'IR',
+	'Asia/Kuwait': 'KW', 'Asia/Muscat': 'OM', 'Asia/Bahrain': 'BH',
+	// Central Asia
+	'Asia/Almaty': 'KZ', 'Asia/Tashkent': 'UZ', 'Asia/Tbilisi': 'GE',
+	'Asia/Yerevan': 'AM', 'Asia/Baku': 'AZ',
+	// Oceania
+	'Australia/Sydney': 'AU', 'Australia/Melbourne': 'AU', 'Australia/Brisbane': 'AU',
+	'Australia/Perth': 'AU', 'Australia/Adelaide': 'AU', 'Australia/Darwin': 'AU',
+	'Australia/Hobart': 'AU',
+	'Pacific/Auckland': 'NZ', 'Pacific/Fiji': 'FJ', 'Pacific/Guam': 'GU',
+	// Africa
+	'Africa/Johannesburg': 'ZA', 'Africa/Lagos': 'NG', 'Africa/Nairobi': 'KE',
+	'Africa/Cairo': 'EG', 'Africa/Casablanca': 'MA', 'Africa/Accra': 'GH',
+	'Africa/Addis_Ababa': 'ET', 'Africa/Dar_es_Salaam': 'TZ', 'Africa/Kampala': 'UG',
+	'Africa/Algiers': 'DZ', 'Africa/Tunis': 'TN', 'Africa/Khartoum': 'SD',
+};
+
+// Convert ISO 3166-1 alpha-2 country code to flag emoji
+function countryCodeToFlag(code: string): string {
+	return [...code.toUpperCase()].map(c => String.fromCodePoint(0x1F1E6 + c.charCodeAt(0) - 65)).join('');
+}
+
+export function getTimezoneFlag(tzId: string): string {
+	const code = TZ_COUNTRY_CODE[tzId];
+	if (code) return countryCodeToFlag(code);
+	// Try to infer from IANA region patterns
+	const regionMap: Record<string, string> = {
+		'Australia': 'AU', 'Antarctica': 'AQ',
+	};
+	const region = tzId.split('/')[0];
+	if (regionMap[region]) return countryCodeToFlag(regionMap[region]);
+	return '';
+}
+
 export interface CityMatch {
 	cityName: string;
 	timezone: TimezoneInfo;
