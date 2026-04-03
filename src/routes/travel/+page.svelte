@@ -121,6 +121,10 @@
 			? (new Date(nextLeg.date).getTime() - tripSpan.startDate.getTime()) / 3600000
 			: arrivalHour + 24;
 
+		// Stay period: from this leg's date to next leg's date (or far future for last leg)
+		const stayStartIso = leg.date;
+		const stayEndIso = nextLeg ? nextLeg.date : '2099-12-31';
+
 		return {
 			...leg,
 			offsetMin,
@@ -128,6 +132,8 @@
 			offsetStr,
 			arrivalHour,
 			departureHour,
+			stayStartIso,
+			stayEndIso,
 		};
 	}));
 
@@ -414,7 +420,7 @@
 
 	// Per-day daylight arc segments — returns one path + color per day
 	// Colors are based on the home timezone's calendar date so Apr 2 = blue everywhere
-	function getDaylightArcs(tzId: string, startHour: number, endHour: number, homeTzId: string, activeDateIso?: string): { path: string; strokePath: string; color: { r: number; g: number; b: number }; dayOffset: number; isActive: boolean; dateIso: string }[] {
+	function getDaylightArcs(tzId: string, startHour: number, endHour: number, homeTzId: string, stayStartIso?: string, stayEndIso?: string): { path: string; strokePath: string; color: { r: number; g: number; b: number }; dayOffset: number; isActive: boolean; dateIso: string }[] {
 		const offsetMinutes = getTimezoneOffset(tzId, new Date());
 		const homeOffsetMinutes = getTimezoneOffset(homeTzId, new Date());
 		const range = endHour - startHour;
@@ -449,7 +455,7 @@
 			const rowDateStr = new Intl.DateTimeFormat('en-CA', { timeZone: tzId, year: 'numeric', month: '2-digit', day: '2-digit' }).format(absDate);
 			const dayOffset = Math.round((new Date(rowDateStr).getTime() - new Date(homeTodayStr).getTime()) / 86400000);
 			const color = getDayColor(dayOffset);
-			const isActive = activeDateIso ? rowDateStr === activeDateIso : true;
+			const isActive = (stayStartIso && stayEndIso) ? (rowDateStr >= stayStartIso && rowDateStr < stayEndIso) : true;
 
 			const points: { x: number; y: number }[] = [];
 			for (let i = 0; i <= samples; i++) {
@@ -482,7 +488,7 @@
 
 	// Progress path — sawtooth per day, split into per-day segments with colors
 	// direction: 'down' = 100→0 (top to bottom), 'up' = 0→100 (bottom to top)
-	function getProgressArcs(tzId: string, startHour: number, endHour: number, homeTzId: string, direction: 'down' | 'up', activeDateIso?: string): { path: string; strokePath: string; color: { r: number; g: number; b: number }; dayOffset: number; isActive: boolean; dateIso: string }[] {
+	function getProgressArcs(tzId: string, startHour: number, endHour: number, homeTzId: string, direction: 'down' | 'up', stayStartIso?: string, stayEndIso?: string): { path: string; strokePath: string; color: { r: number; g: number; b: number }; dayOffset: number; isActive: boolean; dateIso: string }[] {
 		const offsetMinutes = getTimezoneOffset(tzId, new Date());
 		const range = endHour - startHour;
 		const height = 40;
@@ -511,7 +517,7 @@
 			const rowDateStr = new Intl.DateTimeFormat('en-CA', { timeZone: tzId, year: 'numeric', month: '2-digit', day: '2-digit' }).format(absDate);
 			const dayOffset = Math.round((new Date(rowDateStr).getTime() - new Date(homeTodayStr).getTime()) / 86400000);
 			const color = getDayColor(dayOffset);
-			const isActive = activeDateIso ? rowDateStr === activeDateIso : true;
+			const isActive = (stayStartIso && stayEndIso) ? (rowDateStr >= stayStartIso && rowDateStr < stayEndIso) : true;
 
 			const xStart = ((segStart - startHour) / range) * 100;
 			const xEnd = ((segEnd - startHour) / range) * 100;
@@ -526,10 +532,10 @@
 	}
 
 	// Get the arcs for the current viz mode
-	function getVizArcs(tzId: string, startHour: number, endHour: number, homeTzId: string, activeDateIso?: string) {
-		if (vizMode === 'arc') return getDaylightArcs(tzId, startHour, endHour, homeTzId, activeDateIso);
-		if (vizMode === 'progress-down') return getProgressArcs(tzId, startHour, endHour, homeTzId, 'down', activeDateIso);
-		return getProgressArcs(tzId, startHour, endHour, homeTzId, 'up', activeDateIso);
+	function getVizArcs(tzId: string, startHour: number, endHour: number, homeTzId: string, stayStartIso?: string, stayEndIso?: string) {
+		if (vizMode === 'arc') return getDaylightArcs(tzId, startHour, endHour, homeTzId, stayStartIso, stayEndIso);
+		if (vizMode === 'progress-down') return getProgressArcs(tzId, startHour, endHour, homeTzId, 'down', stayStartIso, stayEndIso);
+		return getProgressArcs(tzId, startHour, endHour, homeTzId, 'up', stayStartIso, stayEndIso);
 	}
 
 	// Time labels along the X axis — in the reference (top row) timezone
@@ -954,14 +960,14 @@
 								preserveAspectRatio="none"
 							>
 								<defs>
-									{#each getVizArcs(row.tzId, timelineStart, timelineEnd, homeTz, row.date) as arc, arcIdx}
+									{#each getVizArcs(row.tzId, timelineStart, timelineEnd, homeTz, row.stayStartIso, row.stayEndIso) as arc, arcIdx}
 										<linearGradient id="day-grad-{rowIdx}-{arcIdx}" x1="0" y1="0" x2="0" y2="1">
 											<stop offset="0%" stop-color="rgb({arc.color.r}, {arc.color.g}, {arc.color.b})" stop-opacity={arc.isActive ? 0.15 : 0.04} />
 											<stop offset="100%" stop-color="rgb({arc.color.r}, {arc.color.g}, {arc.color.b})" stop-opacity="0.0" />
 										</linearGradient>
 									{/each}
 								</defs>
-								{#each getVizArcs(row.tzId, timelineStart, timelineEnd, homeTz, row.date) as arc, arcIdx}
+								{#each getVizArcs(row.tzId, timelineStart, timelineEnd, homeTz, row.stayStartIso, row.stayEndIso) as arc, arcIdx}
 									<!-- Filled area -->
 									<path
 										d={arc.path}
