@@ -12,7 +12,7 @@
 		type TimezoneInfo,
 		type SearchResult,
 	} from '$lib/timezones';
-	import { X, Search, Globe, Plane, ChevronRight, ChevronUp, ChevronDown, MapPin, Plus, LocateFixed, Sunset, TrendingUp, TrendingDown } from '@lucide/svelte';
+	import { X, Search, Globe, Plane, ChevronRight, ChevronUp, ChevronDown, MapPin, Plus, LocateFixed, Sunset, TrendingUp, TrendingDown, Copy, Check } from '@lucide/svelte';
 	import * as Popover from '$lib/components/ui/popover';
 	import { Calendar } from '$lib/components/ui/calendar';
 	import { CalendarDate } from '@internationalized/date';
@@ -654,6 +654,39 @@
 		hoverPct = null;
 	}
 
+	// --- Debug: copy state ---
+	let copied = $state(false);
+	function copyState() {
+		const homeTzId = homeLeg.tzId;
+		const timelineStart = centerHour - TIMELINE_HOURS / 2;
+		const timelineEnd = centerHour + TIMELINE_HOURS / 2;
+		const lines: string[] = [];
+		lines.push(`Viz: ${vizMode} | Window: ${TIMELINE_HOURS}h`);
+		lines.push('');
+		for (const row of legTimelines) {
+			const type = row.isGhost ? 'GHOST' : row.isHome ? 'HOME' : 'DST';
+			const label = row.isGhost ? `${row.ghostDays}d transit → ${row.tzId}` : `${row.city} (${row.abbr} ${row.offsetStr})`;
+			const arcs = getVizArcs(row.tzId, timelineStart, timelineEnd, homeTzId, row.isGhost ? 'none' : undefined, row.isGhost ? 'none' : undefined);
+			const arcDesc = arcs.map(a => {
+				const style = a.isActive ? 'SOLID' : 'DASHED';
+				const c = `rgb(${a.color.r},${a.color.g},${a.color.b})`;
+				return `${a.dateIso}:${style}(${c})`;
+			}).join(' | ');
+			const midnights = row.isGhost ? '' : getMidnightPositions(row.tzId, timelineStart, timelineEnd, homeTzId)
+				.map(m => `${m.label}@${m.pct.toFixed(1)}%`).join(', ');
+			lines.push(`[${type}] ${label}`);
+			lines.push(`  arcs: ${arcDesc}`);
+			if (midnights) lines.push(`  midnights: ${midnights}`);
+			if (!row.isGhost) lines.push(`  stay: ${row.stayStartIso} → ${row.stayEndIso}`);
+			lines.push('');
+		}
+		const nowPct = ((nowHourFromStart - timelineStart) / TIMELINE_HOURS) * 100;
+		lines.push(`Now line: ${nowPct.toFixed(1)}%`);
+		navigator.clipboard.writeText(lines.join('\n'));
+		copied = true;
+		setTimeout(() => copied = false, 2000);
+	}
+
 	// --- Hover ---
 	function handleTimelineMouseMove(e: MouseEvent) {
 		if (isDragging) return;
@@ -717,9 +750,24 @@
 			<Plane class="h-6 w-6 max-sm:h-5 max-sm:w-5 text-muted-foreground" strokeWidth={1.5} />
 			<h1 class="text-2xl max-sm:text-xl font-light tracking-[0.3em] text-muted-foreground">TRAVEL</h1>
 		</div>
-		<a href="/" class="text-xs text-muted-foreground/50 hover:text-muted-foreground transition-colors mb-6">
-			← back to timezone
-		</a>
+		<div class="flex items-center gap-3 mb-6">
+			<a href="/" class="text-xs text-muted-foreground/50 hover:text-muted-foreground transition-colors">
+				← back to timezone
+			</a>
+			<button
+				type="button"
+				onclick={copyState}
+				class="text-[10px] text-muted-foreground/30 hover:text-muted-foreground transition-colors flex items-center gap-1"
+			>
+				{#if copied}
+					<Check class="h-3 w-3" />
+					copied
+				{:else}
+					<Copy class="h-3 w-3" />
+					debug
+				{/if}
+			</button>
+		</div>
 
 		<!-- Search box -->
 		<div class="w-full max-w-4xl">
