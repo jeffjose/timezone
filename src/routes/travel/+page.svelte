@@ -931,8 +931,8 @@
 					{@const isGhost = row.isGhost}
 					{@const legIdx = isGhost ? -1 : allLegs.findIndex(l => l.id === row.id) - 1}
 					{@const timeDiff = !isHome && !isGhost ? getTimeDiff(legTimelines[0].tzId, row.tzId, new Date(row.date)) : null}
-					{@const realRows = allLegs.length}
-					{@const rowHeight = isGhost ? 32 : (realRows <= 5 ? 96 : Math.max(56, 480 / realRows))}
+					{@const totalRows = legTimelines.length}
+					{@const rowHeight = totalRows <= 5 ? 96 : Math.max(56, 480 / totalRows)}
 
 					<div class="flex items-stretch gap-0" style="height: {rowHeight}px">
 						<!-- Row label -->
@@ -991,14 +991,14 @@
 								preserveAspectRatio="none"
 							>
 								<defs>
-									{#each getVizArcs(row.tzId, timelineStart, timelineEnd, homeTz, isGhost ? 'none' : row.stayStartIso, isGhost ? 'none' : row.stayEndIso) as arc, arcIdx}
+									{#each getVizArcs(row.tzId, timelineStart, timelineEnd, homeTz, isGhost ? 'none' : undefined, isGhost ? 'none' : undefined) as arc, arcIdx}
 										<linearGradient id="day-grad-{rowIdx}-{arcIdx}" x1="0" y1="0" x2="0" y2="1">
 											<stop offset="0%" stop-color="rgb({arc.color.r}, {arc.color.g}, {arc.color.b})" stop-opacity={arc.isActive ? 0.15 : 0.04} />
 											<stop offset="100%" stop-color="rgb({arc.color.r}, {arc.color.g}, {arc.color.b})" stop-opacity="0.0" />
 										</linearGradient>
 									{/each}
 								</defs>
-								{#each getVizArcs(row.tzId, timelineStart, timelineEnd, homeTz, isGhost ? 'none' : row.stayStartIso, isGhost ? 'none' : row.stayEndIso) as arc, arcIdx}
+								{#each getVizArcs(row.tzId, timelineStart, timelineEnd, homeTz, isGhost ? 'none' : undefined, isGhost ? 'none' : undefined) as arc, arcIdx}
 									<!-- Filled area -->
 									<path
 										d={arc.path}
