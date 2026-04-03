@@ -993,7 +993,7 @@
 								<defs>
 									{#each getVizArcs(row.tzId, timelineStart, timelineEnd, homeTz, isGhost ? 'none' : undefined, isGhost ? 'none' : undefined) as arc, arcIdx}
 										<linearGradient id="day-grad-{rowIdx}-{arcIdx}" x1="0" y1="0" x2="0" y2="1">
-											<stop offset="0%" stop-color="rgb({arc.color.r}, {arc.color.g}, {arc.color.b})" stop-opacity={arc.isActive ? 0.15 : 0.04} />
+											<stop offset="0%" stop-color="rgb({arc.color.r}, {arc.color.g}, {arc.color.b})" stop-opacity={arc.isActive ? 0.15 : 0.1} />
 											<stop offset="100%" stop-color="rgb({arc.color.r}, {arc.color.g}, {arc.color.b})" stop-opacity="0.0" />
 										</linearGradient>
 									{/each}
@@ -1009,7 +1009,7 @@
 										d={arc.strokePath}
 										fill="none"
 										stroke="rgb({arc.color.r}, {arc.color.g}, {arc.color.b})"
-										stroke-opacity={arc.isActive ? 0.5 : 0.15}
+										stroke-opacity={arc.isActive ? 0.5 : 0.35}
 										stroke-width="1"
 										stroke-dasharray={arc.isActive ? 'none' : '3,3'}
 										vector-effect="non-scaling-stroke"
