@@ -110,32 +110,66 @@
 		...legs.map(l => ({ ...l, isHome: false as const })),
 	]);
 
-	let legTimelines = $derived(allLegs.map((leg, i) => {
-		const offsetMin = getTimezoneOffset(leg.tzId, new Date(leg.date));
-		const abbr = getTimezoneAbbr(leg.tzId, new Date(leg.date));
-		const offsetStr = formatOffset(offsetMin);
-		const legDate = new Date(leg.date);
-		const arrivalHour = (legDate.getTime() - tripSpan.startDate.getTime()) / 3600000;
-		const nextLeg = allLegs[i + 1];
-		const departureHour = nextLeg
-			? (new Date(nextLeg.date).getTime() - tripSpan.startDate.getTime()) / 3600000
-			: arrivalHour + 24;
+	// Build rows: real legs interleaved with ghost transition rows
+	let legTimelines = $derived((() => {
+		const rows: Array<{
+			id: number; city: string; tzId: string; date: string;
+			isHome: boolean; isGhost: boolean; ghostDays?: number;
+			offsetMin: number; abbr: string; offsetStr: string;
+			arrivalHour: number; departureHour: number;
+			stayStartIso: string; stayEndIso: string;
+		}> = [];
 
-		// Stay period: from this leg's date to next leg's date (or far future for last leg)
-		const stayStartIso = leg.date;
-		const stayEndIso = nextLeg ? nextLeg.date : '2099-12-31';
+		for (let i = 0; i < allLegs.length; i++) {
+			const leg = allLegs[i];
+			const offsetMin = getTimezoneOffset(leg.tzId, new Date(leg.date));
+			const abbr = getTimezoneAbbr(leg.tzId, new Date(leg.date));
+			const offsetStr = formatOffset(offsetMin);
+			const legDate = new Date(leg.date);
+			const arrivalHour = (legDate.getTime() - tripSpan.startDate.getTime()) / 3600000;
+			const nextLeg = allLegs[i + 1];
+			const departureHour = nextLeg
+				? (new Date(nextLeg.date).getTime() - tripSpan.startDate.getTime()) / 3600000
+				: arrivalHour + 24;
+			const stayStartIso = leg.date;
+			const stayEndIso = nextLeg ? nextLeg.date : '2099-12-31';
 
-		return {
-			...leg,
-			offsetMin,
-			abbr,
-			offsetStr,
-			arrivalHour,
-			departureHour,
-			stayStartIso,
-			stayEndIso,
-		};
-	}));
+			rows.push({
+				...leg,
+				isGhost: false,
+				offsetMin, abbr, offsetStr,
+				arrivalHour, departureHour,
+				stayStartIso, stayEndIso,
+			});
+
+			// Insert one ghost row between this leg and the next (if >0 days apart)
+			if (nextLeg) {
+				const daysBetween = Math.round(
+					(new Date(nextLeg.date + 'T12:00:00').getTime() - new Date(leg.date + 'T12:00:00').getTime()) / 86400000
+				);
+				if (daysBetween > 1) {
+					rows.push({
+						id: -(1000 + i),
+						city: '',
+						tzId: nextLeg.tzId,
+						date: leg.date, // starts from departure
+						isHome: false,
+						isGhost: true,
+						ghostDays: daysBetween - 1,
+						offsetMin: getTimezoneOffset(nextLeg.tzId, new Date(nextLeg.date)),
+						abbr: getTimezoneAbbr(nextLeg.tzId, new Date(nextLeg.date)),
+						offsetStr: formatOffset(getTimezoneOffset(nextLeg.tzId, new Date(nextLeg.date))),
+						arrivalHour: (new Date(leg.date + 'T12:00:00').getTime() - tripSpan.startDate.getTime()) / 3600000 + 24,
+						departureHour: (new Date(nextLeg.date + 'T12:00:00').getTime() - tripSpan.startDate.getTime()) / 3600000,
+						// Ghost's "stay" covers the intermediate dates
+						stayStartIso: (() => { const d = new Date(leg.date + 'T12:00:00'); d.setDate(d.getDate() + 1); return d.toISOString().split('T')[0]; })(),
+						stayEndIso: nextLeg.date,
+					});
+				}
+			}
+		}
+		return rows;
+	})());
 
 	// Now position as hours from trip start
 	let nowHourFromStart = $derived(
@@ -894,31 +928,27 @@
 			<div class="flex flex-col relative">
 				{#each legTimelines as row, rowIdx}
 					{@const isHome = row.isHome}
-					{@const legIdx = allLegs.findIndex(l => l.id === row.id) - 1}
-					{@const timeDiff = !isHome ? getTimeDiff(legTimelines[0].tzId, row.tzId, new Date(row.date)) : null}
-					{@const rowHeight = legTimelines.length <= 5 ? 96 : Math.max(56, 480 / legTimelines.length)}
+					{@const isGhost = row.isGhost}
+					{@const legIdx = isGhost ? -1 : allLegs.findIndex(l => l.id === row.id) - 1}
+					{@const timeDiff = !isHome && !isGhost ? getTimeDiff(legTimelines[0].tzId, row.tzId, new Date(row.date)) : null}
+					{@const realRows = allLegs.length}
+					{@const rowHeight = isGhost ? 32 : (realRows <= 5 ? 96 : Math.max(56, 480 / realRows))}
 
 					<div class="flex items-stretch gap-0" style="height: {rowHeight}px">
 						<!-- Row label -->
 						<div class="group w-44 max-sm:hidden shrink-0 flex items-center justify-end pr-3 relative">
-								<!-- Reorder buttons (destinations only, not home) -->
+							{#if isGhost}
+								<span class="text-[9px] text-muted-foreground/25 italic">{row.ghostDays}d transit</span>
+							{:else}
 								{#if !isHome}
 									<div class="absolute left-0 top-1/2 -translate-y-1/2 flex flex-col opacity-0 group-hover:opacity-100 transition-opacity">
 										{#if legIdx > 0}
-											<button
-												type="button"
-												onclick={() => moveLeg(legIdx, -1)}
-												class="p-0.5 rounded hover:bg-accent text-muted-foreground hover:text-foreground transition-colors"
-											>
+											<button type="button" onclick={() => moveLeg(legIdx, -1)} class="p-0.5 rounded hover:bg-accent text-muted-foreground hover:text-foreground transition-colors">
 												<ChevronUp class="h-3 w-3" />
 											</button>
 										{/if}
 										{#if legIdx < legs.length - 1}
-											<button
-												type="button"
-												onclick={() => moveLeg(legIdx, 1)}
-												class="p-0.5 rounded hover:bg-accent text-muted-foreground hover:text-foreground transition-colors"
-											>
+											<button type="button" onclick={() => moveLeg(legIdx, 1)} class="p-0.5 rounded hover:bg-accent text-muted-foreground hover:text-foreground transition-colors">
 												<ChevronDown class="h-3 w-3" />
 											</button>
 										{/if}
@@ -948,6 +978,7 @@
 										{/if}
 									{/if}
 								</div>
+							{/if}
 						</div>
 
 						<!-- Horizontal strip -->
@@ -960,14 +991,14 @@
 								preserveAspectRatio="none"
 							>
 								<defs>
-									{#each getVizArcs(row.tzId, timelineStart, timelineEnd, homeTz, row.stayStartIso, row.stayEndIso) as arc, arcIdx}
+									{#each getVizArcs(row.tzId, timelineStart, timelineEnd, homeTz, isGhost ? 'none' : row.stayStartIso, isGhost ? 'none' : row.stayEndIso) as arc, arcIdx}
 										<linearGradient id="day-grad-{rowIdx}-{arcIdx}" x1="0" y1="0" x2="0" y2="1">
 											<stop offset="0%" stop-color="rgb({arc.color.r}, {arc.color.g}, {arc.color.b})" stop-opacity={arc.isActive ? 0.15 : 0.04} />
 											<stop offset="100%" stop-color="rgb({arc.color.r}, {arc.color.g}, {arc.color.b})" stop-opacity="0.0" />
 										</linearGradient>
 									{/each}
 								</defs>
-								{#each getVizArcs(row.tzId, timelineStart, timelineEnd, homeTz, row.stayStartIso, row.stayEndIso) as arc, arcIdx}
+								{#each getVizArcs(row.tzId, timelineStart, timelineEnd, homeTz, isGhost ? 'none' : row.stayStartIso, isGhost ? 'none' : row.stayEndIso) as arc, arcIdx}
 									<!-- Filled area -->
 									<path
 										d={arc.path}
@@ -986,8 +1017,8 @@
 								{/each}
 							</svg>
 
-							<!-- Per-row midnight gridlines (colored) -->
-							{#each getMidnightPositions(row.tzId, timelineStart, timelineEnd, homeTz) as midnight}
+							<!-- Per-row midnight gridlines (skip for ghost rows) -->
+							{#each isGhost ? [] : getMidnightPositions(row.tzId, timelineStart, timelineEnd, homeTz) as midnight}
 								<div
 									class="absolute inset-y-0 w-px"
 									style="left: {midnight.pct}%; background: rgba({midnight.color.r}, {midnight.color.g}, {midnight.color.b}, 0.3)"
